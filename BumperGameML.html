@@ -1,0 +1,144 @@
+<html>
+
+<head>
+<link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+	<div id="board">
+		<div id="titleScreenContainer">
+			<div id="assignPlayersPanel">
+				<h2>Assign Players</h2>
+				<div class="rl-stat">
+					<table class="rl-stat-label">
+						<tbody>
+							<tr>
+								<td>Player 1</td>
+								<td>
+									<div class="switch-toggle switch-3 switch-candy">
+										<input id="p_1" name="pc_1" type="radio" disabled="disabled">
+										<label for="p_1">P1</label>
+										<input id="cpu_1" name="pc_1" type="radio" checked="">
+										<label for="cpu_1">CPU</label>
+										<input id="ai_1" name="pc_1" type="radio">
+										<label for="ai_1">AI</label>
+									</div>
+								</td>
+							</tr>
+							<tr>
+								<td>Player 2</td>
+								<td>
+									<div class="switch-toggle switch-3 switch-candy">
+										<input id="p_2" name="pc_2" type="radio" disabled="disabled">
+										<label for="p_2">P2</label>
+										<input id="cpu_2" name="pc_2" type="radio" checked="">
+										<label for="cpu_2">CPU</label>
+										<input id="ai_2" name="pc_2" type="radio">
+										<label for="ai_2">AI</label>
+									</div>
+								</td>
+							</tr>
+							<tr>
+								<td>Player 3</td>
+								<td>
+									<div class="switch-toggle switch-3 switch-candy">
+										<input id="p_3" name="pc_3" type="radio" disabled="disabled">
+										<label for="p_3">P3</label>
+										<input id="cpu_3" name="pc_3" type="radio" checked="">
+										<label for="cpu_3">CPU</label>
+										<input id="ai_3" name="pc_3" type="radio">
+										<label for="ai_3">AI</label>
+									</div>
+								</td>
+							</tr>
+							<tr>
+								<td>Player 4</td>
+								<td>
+									<div class="switch-toggle switch-3 switch-candy">
+										<input id="p_4" name="pc_4" type="radio">
+										<label for="p_4">P4</label>
+										<input id="cpu_4" name="pc_4" type="radio">
+										<label for="cpu_4">CPU</label>
+										<input id="ai_4" name="pc_4" type="radio" checked="">
+										<label for="ai_4">AI</label>
+									</div>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+				<div class="rl-stat">
+					<div id="importModelContainer" class="rl-stat-label">
+						Import saved model for AI players
+						<div>Json: <input type="file" id="upload-json" /></div>
+						<div>Weights: <input type="file" id="upload-weights" /></div>
+					</div>
+					<div class="rl-stat-label" style="text-align:center;margin:15px 0px;">
+						<hr>
+						OR
+						<hr>
+					</div>
+					<div class="rl-stat-label">
+						<div id="trainModelMessage">Train a new model</div>
+						<div class="rl-controls">
+							<button id="trainModelBtn"><span class="spinner"></span>Train Model</button>
+							<button id="exportModelBtn" style="display:none;">Export Model</button>
+						</div>
+					</div>
+				</div>
+				<div class="rl-stat">
+					<div class="rl-controls">
+						<button id="startGameBtn">Start Game</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<div id="predictBall1" class="predictBall"></div>
+		<div id="predictBall2" class="predictBall"></div>
+		<div id="predictBall3" class="predictBall"></div>
+		<div id="predictBall4" class="predictBall"></div>
+		<div id="ball"><div id="ballStats"></div></div>
+		<div id="corner1" class="corner"></div>
+		<div id="corner2" class="corner"></div>
+		<div id="corner3" class="corner"></div>
+		<div id="corner4" class="corner"></div>
+		<div id="cornerSquare1" class="cornerSquare"></div>
+		<div id="cornerSquare2" class="cornerSquare"></div>
+		<div id="cornerSquare3" class="cornerSquare"></div>
+		<div id="cornerSquare4" class="cornerSquare"></div>
+		<div id="bumper1" class="bumper">
+			<div class="bumperCircle">
+				<div class="playerLabel"></div>
+				<div class="bumperLabel">0</div>
+			</div>
+		</div>
+		<div id="bumper2" class="bumper">
+			<div class="bumperCircle">
+				<div class="playerLabel"></div>
+				<div class="bumperLabel">0</div>
+			</div>
+		</div>
+		<div id="bumper3" class="bumper">
+			<div class="bumperCircle">
+				<div class="playerLabel"></div>
+				<div class="bumperLabel">0</div>
+			</div>
+		</div>
+		<div id="bumper4" class="bumper" style="left: 400px;">
+			<div class="bumperCircle">
+				<div class="playerLabel"></div>
+				<div class="bumperLabel">0</div>
+			</div>
+		</div>
+		<div id="goal1" class="goal"></div>
+		<div id="goal2" class="goal"></div>
+		<div id="goal3" class="goal"></div>
+		<div id="goal4" class="goal"></div>
+	</div>
+</body>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+<script src="scripts.js"></script>
+
+</html>

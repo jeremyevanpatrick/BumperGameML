@@ -1,0 +1,377 @@
+
+html {
+  font-size: 5px;
+}
+
+@media (min-width: 576px) {
+  html {
+    font-size: 9px;
+  }
+}
+
+@media (min-width: 768px) {
+  html {
+    font-size: 12px;
+  }
+}
+
+@media (min-width: 992px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 1200px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 1400px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+body{
+	margin: 0 auto;
+}
+
+#board{
+	display:inline-block;
+	float:left;
+	height:62.5rem;
+	width:62.5rem;
+	position:relative;
+    background-color: #EEE;
+	overflow: hidden;
+}
+.goalHighlight{
+	background-color: #e7e473!important;
+}
+.goal{
+	display:inline-block;
+	float:left;
+	background-color:#cec5e040;
+	position:absolute;
+}
+#goal1{
+	width:31.25rem;
+	height:7.8125rem;
+    top: 0px;
+    left: 15.625rem;
+}
+#goal2{
+	width:7.8125rem;
+	height:31.25rem;
+    top: 15.625rem;
+    left: 0px;
+}
+#goal3{
+	width:7.8125rem;
+	height:31.25rem;
+    top: 15.625rem;
+    left: 54.6875rem;
+}
+#goal4{
+	width:31.25rem;
+	height:7.8125rem;
+    top: 54.6875rem;
+    left: 15.625rem;
+}
+.cornerSquare{
+	display:inline-block;
+	float:left;
+	width:15.625rem;
+	height:15.625rem;
+	background-color:#242d3f;
+	z-index:1;
+	position:absolute;
+}
+#cornerSquare1{
+    top: 0px;
+    left: 0px;
+}
+#cornerSquare2{
+    top: 0px;
+    left: 46.875rem;
+}
+#cornerSquare3{
+    top: 46.875rem;
+    left: 0px;
+}
+#cornerSquare4{
+    top: 46.875rem;
+    left: 46.875rem;
+}
+.corner{
+	display:inline-block;
+	float:left;
+	width:7.8125rem;
+	height:7.8125rem;
+	background-image: url(corner3.png);
+	background-size: 100%;
+	position: absolute;
+	z-index: 15;
+}
+#corner1{
+    top: 7.8125rem;
+    left: 7.8125rem;
+}
+#corner2{
+    top: 7.8125rem;
+    left: 46.875rem;
+	transform: rotate(90deg);
+}
+#corner3{
+    top: 46.875rem;
+    left: 7.8125rem;
+	transform: rotate(270deg);
+}
+#corner4{
+    top: 46.875rem;
+    left: 46.875rem;
+	transform: rotate(180deg);
+}
+.bumper{
+	width:6.25rem;
+	height:6.25rem;
+	background-color:white;
+	position:absolute;
+	z-index: 20;
+}
+#bumper1{
+	top:1.5625rem;
+	left:28.125rem;
+}
+#bumper2{
+	left:1.5625rem;
+	top:28.125rem;
+}
+#bumper3{
+	left:54.6875rem;
+	top:28.125rem;
+}
+#bumper4{
+	top:54.6875rem;
+	left:28.125rem;
+}
+#predictBall1{
+	background-color:#0000ff80;
+}
+#predictBall2{
+	background-color:#ffd70080;
+}
+#predictBall3{
+	background-color:#00800080;
+}
+#predictBall4{
+	background-color:#ff000080;
+}
+.predictBall{
+	position:absolute;
+	top:30.3125rem;
+	left:30.3125rem;
+	width:1.875rem;
+	height:1.875rem;
+	/*transform: rotate(90deg);*/
+	border-radius: 0.9375rem;
+	z-index: 99;
+}
+#ball{
+	position:absolute;
+	top:30.3125rem;
+	left:30.3125rem;
+	width:1.875rem;
+	height:1.875rem;
+	background-color:black;
+	/*transform: rotate(90deg);*/
+	border-radius: 0.9375rem;
+	z-index: 100;
+}
+#ballStats{
+	position:absolute;
+	top:-3.75rem;
+	left:2.5rem;
+	background-color: rgb(255 255 255 / 50%);
+    padding: 0.375rem;
+	display:none;
+}
+.bumperCircle{
+	top: 0.3125rem;
+	left: 0.3125rem;
+	position:absolute;
+	background-color: black;
+	height: 5.625rem;
+	width: 5.625rem;
+	border-radius: 50%;
+}
+.playerLabel{
+    top: 0.5rem;
+    left: 0.9375rem;
+    position: absolute;
+    height: 1.5rem;
+    width: 3.75rem;
+    text-align: center;
+    line-height: 1.5rem;
+    font-family: courier;
+    color: #FFF;
+}
+.bumperLabel{
+	top: 2.0625rem;
+    left: 0.9375rem;
+    position: absolute;
+    height: 1.5rem;
+    width: 3.75rem;
+    border-radius: 0.3125rem;
+	text-align: center;
+    line-height: 1.5rem;
+    font-family: courier;
+	color:#FFF;
+}
+#bumper1, #bumper1 .bumperLabel{
+	background-color:blue;
+}
+#bumper2, #bumper2 .bumperLabel{
+	background-color:gold;
+}
+#bumper3, #bumper3 .bumperLabel{
+	background-color:green;
+}
+#bumper4, #bumper4 .bumperLabel{
+	background-color:red;
+}
+
+#titleScreenContainer{
+	height: 100%;
+    width: 100%;
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    background-color: rgb(0 0 0 / 50%);
+    z-index: 200;
+}
+#assignPlayersPanel{
+	width: 25rem;
+    margin: 10rem auto;
+    position: relative;
+    background: #eeeeee;
+    color: #242d3f;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    font-family: Arial, sans-serif;
+}
+#assignPlayersPanel h2 {
+	margin-top: 0;
+	font-size: 1.5rem;
+}
+.rlPanel {
+	display: inline-block;
+	float: left;
+	width: 25rem;
+	margin-left: 2rem;
+	margin-top: 1rem;
+	background: #eeeeee;
+	color: #242d3f;
+	padding: 1.5rem;
+	border-radius: 0.5rem;
+	font-family: Arial, sans-serif;
+}
+
+.rlPanel h2 {
+	margin-top: 0;
+	font-size: 1.5rem;
+}
+
+.rl-stats {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 1rem;
+	margin: 1rem 0;
+}
+
+.rl-stat {
+	background: #FFF;
+	padding: 0.75rem;
+	border-radius: 0.25rem;
+	margin-bottom: 10px;
+}
+
+.rl-stat-label {
+	font-size: 0.75rem;
+	color: #242d3f;
+}
+
+.rl-stat-value {
+	font-size: 1.5rem;
+	font-weight: bold;
+	color: #4CAF50;
+}
+
+.rl-controls button {
+	width: 100%;
+	padding: 0.75rem;
+	margin: 0.5rem 0;
+	font-size: 1rem;
+	cursor: pointer;
+	background: #4CAF50;
+	color: white;
+	border: none;
+	border-radius: 0.25rem;
+}
+
+.rl-controls button:hover:not(:disabled) {
+	background: #45a049;
+}
+
+.rl-controls button:disabled {
+	background: #666;
+	cursor: not-allowed;
+}
+
+#trainModelBtn,
+#exportModelBtn{
+	background: #4c80af;
+	width: auto;
+}
+#trainModelBtn:hover:not(:disabled),
+#exportModelBtn:hover:not(:disabled) {
+	background: #4575a0;
+}
+#trainModelBtn:disabled,
+#exportModelBtn:disabled {
+	background: #666;
+	cursor: not-allowed;
+}
+
+#importModelContainer{
+	margin-top: 15px 0px;
+}
+
+#importModelContainer div{
+	margin-top: 5px;
+	display:inline-block;
+	width:100%;
+}
+
+/* Button spinner */
+.spinner {
+	float: left;
+    margin-right: 8px;
+    width: 10px;
+    height: 10px;
+    border: 3px solid #ffffff;
+    border-bottom-color: transparent;
+    border-radius: 50%;
+    display: none;
+    animation: rotation 1s linear infinite;
+}
+
+button:disabled .spinner {
+	display: inline-block;
+}
+
+@keyframes rotation {
+	0% { transform: rotate(0deg); }
+	100% { transform: rotate(360deg); }
+}
