@@ -1,13 +1,48 @@
 <html>
 
 <head>
-<link rel="stylesheet" href="styles.css">
+	<link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
 	<div id="board">
-		<div id="titleScreenContainer">
-			<div id="assignPlayersPanel">
+		<div id="analysisScreenContainer" class="containerBackground">
+			<div id="visualizationsPanel" class="menuPanel">
+				<div id="visualizationsCloseBtn" class="closeBtn">🗙</div>
+				<div id="visualizationsPanelContentArea">
+					<h2>Predicted vs Actual</h2>
+					<div class="rl-stat">
+						<div id="predictedActualScatterPlotX" class="visualizationContainer"></div>
+						<div id="predictedActualScatterPlotY" class="visualizationContainer"></div>
+						<div id="predictedActualScatterPlotVX" class="visualizationContainer"></div>
+						<div id="predictedActualScatterPlotVY" class="visualizationContainer"></div>
+					</div>
+					<h2>Residual Histogram</h2>
+					<div class="rl-stat">
+						<div id="residualHistogramX" class="visualizationContainer"></div>
+						<div id="residualHistogramY" class="visualizationContainer"></div>
+						<div id="residualHistogramVX" class="visualizationContainer"></div>
+						<div id="residualHistogramVY" class="visualizationContainer"></div>
+					</div>
+					<h2>Residual vs Actual</h2>
+					<div class="rl-stat">
+						<div id="residualActualScatterPlotX" class="visualizationContainer"></div>
+						<div id="residualActualScatterPlotY" class="visualizationContainer"></div>
+						<div id="residualActualScatterPlotVX" class="visualizationContainer"></div>
+						<div id="residualActualScatterPlotVY" class="visualizationContainer"></div>
+					</div>
+					<h2>Rollout Average Error at Bounce</h2>
+					<div class="rl-stat">
+						<div id="rolloutPlotX" class="visualizationContainer"></div>
+						<div id="rolloutPlotY" class="visualizationContainer"></div>
+						<div id="rolloutPlotVX" class="visualizationContainer"></div>
+						<div id="rolloutPlotVY" class="visualizationContainer"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div id="titleScreenContainer" class="containerBackground">
+			<div id="assignPlayersPanel" class="menuPanel">
 				<h2>Assign Players</h2>
 				<div class="rl-stat">
 					<table class="rl-stat-label">
@@ -67,36 +102,42 @@
 						</tbody>
 					</table>
 				</div>
-				<div class="rl-stat">
+				<div id="modelPanel" class="rl-stat">
 					<div id="importModelContainer" class="rl-stat-label">
-						Import saved model for AI players
-						<div>Json: <input type="file" id="upload-json" /></div>
-						<div>Weights: <input type="file" id="upload-weights" /></div>
-					</div>
-					<div class="rl-stat-label" style="text-align:center;margin:15px 0px;">
-						<hr>
-						OR
-						<hr>
-					</div>
-					<div class="rl-stat-label">
-						<div id="trainModelMessage">Train a new model</div>
-						<div class="rl-controls">
-							<button id="trainModelBtn"><span class="spinner"></span>Train Model</button>
-							<button id="exportModelBtn" style="display:none;">Export Model</button>
+						<div id="modelTopSection">
+							<div id="localStorageModelName"><div id="modelLoadSymbol"><span id="xSymbol">✖</span><span id="checkSymbol">&#x2713;</span></div><div id="modelLoadStatus"><span id="aiLoadedText">AI Model loaded</span><span id="noModelFoundText">No AI Model found</span></div><div id="modelExpandBtn">+</div></div>
+							<span id="localStorageModelLastModified">Last modified <span id="localStorageModelTime"></span></span> <a id="exportModelBtn" href="javascript:void(0)">Export &#x2913;</a>
+						</div>
+						<div id="modelFilesImportContainer">
+							<div id="importFromFileSystemMessage">Import a model from local file system</div>
+							<div>Json: <input type="file" id="upload-json" /></div>
+							<div>Weights: <input type="file" id="upload-weights" /></div>
+							<div id="importModelBtn" class="aiBtn">Import Files</div>
+						</div>
+						<div id="trainAnalyzeSection">
+							<button id="trainModelBtn" class="aiBtn"><span class="spinner"></span>Train New Model</button>
+							<button id="analyzeModelBtn" class="aiBtn"><span class="spinner"></span>Analyze Model</button>
+							<div id="trainingGraphContainer">
+								<h2>Training Loss</h2>
+								<div class="rl-stat">
+									<div id="trainingLossGraph" class="visualizationContainer"></div>
+								</div>
+							</div>
 						</div>
 					</div>
 				</div>
 				<div class="rl-stat">
 					<div class="rl-controls">
-						<button id="startGameBtn">Start Game</button>
+						<button id="startGameBtn" class="greenBtn">Start Game</button>
 					</div>
 				</div>
 			</div>
 		</div>
 		
-		<div id="predictBall1" class="predictBall"></div>
-		<div id="predictBall2" class="predictBall"></div>
-		<div id="predictBall3" class="predictBall"></div>
+		<div id="calculateBall1" class="predictBall"></div>
+		<div id="calculateBall2" class="predictBall"></div>
+		<div id="calculateBall3" class="predictBall"></div>
+		<div id="calculateBall4" class="predictBall"></div>
 		<div id="predictBall4" class="predictBall"></div>
 		<div id="ball"><div id="ballStats"></div></div>
 		<div id="corner1" class="corner"></div>
@@ -139,6 +180,8 @@
 </body>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.3.min.js"></script>
+<!--<script src="validationData.js"></script>-->
 <script src="scripts.js"></script>
-
+<script src="visualizationsScripts.js"></script>
 </html>

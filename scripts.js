@@ -1,16 +1,22 @@
 const INTERVAL_DURATION_MS = 25;
 const BOARD_WIDTH = getElementPropertyAsFloat("board", 'width');
 const BOARD_HEIGHT = getElementPropertyAsFloat("board", 'height');
+const BOARD_HYPOTENUSE = Math.sqrt((BOARD_WIDTH**2) * 2);
 const GOAL_DEPTH = getElementPropertyAsFloat('goal1', 'height');
 const GOAL_BREADTH = getElementPropertyAsFloat('goal1', 'width');
+const PLAYABLE_AREA_WIDTH = BOARD_WIDTH - (GOAL_DEPTH * 2);
 const BALL_RADIUS = getElementPropertyAsFloat('ball', 'width') / 2;
-const BALL_RADIUS_NORMALIZED = BALL_RADIUS / BOARD_WIDTH;
+const BALL_RADIUS_45_DEGREE_COMPONENT = Math.sqrt((BALL_RADIUS * BALL_RADIUS) / 2);
+const BALL_RADIUS_SQUARE_HYPOTENUSE = Math.hypot(BALL_RADIUS, BALL_RADIUS);
+const NEAR_GOAL_DISTANCE = (BALL_RADIUS * 2) + BALL_RADIUS_45_DEGREE_COMPONENT;
 const MIN_BALL_SPEED = 10;
 const MAX_BALL_SPEED = 100;
 const DIRECTIONS = {
 	RIGHT: "right",
 	LEFT: "left"
 };
+const LOCAL_STORAGE_PATH = 'localstorage://intercept-predictor-model';
+const LOCAL_STORAGE_TIMESTAMP_PATH = LOCAL_STORAGE_PATH + 'timestamp';
 
 class Point {
 	constructor(x, y){
@@ -26,7 +32,7 @@ class Line {
 	}
 	
 	isIntersectedByPoint(testPoint, radius = 0){
-		var _self = this;
+		const _self = this;
 		
 		var minX = Math.min(_self.point1.x, _self.point2.x);
 		var maxX = Math.max(_self.point1.x, _self.point2.x);
@@ -43,14 +49,30 @@ class Line {
 	}
 	
 	getPerpendicularDistance(testPoint) {
-		const { x: x1, y: y1 } = this.point1;
-		const { x: x2, y: y2 } = this.point2;
+		const _self = this;
+		const { x: x1, y: y1 } = _self.point1;
+		const { x: x2, y: y2 } = _self.point2;
 
 		var numerator = Math.abs((x2 - x1) * (y1 - testPoint.y) - (x1 - testPoint.x) * (y2 - y1));
 		var denominator = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 
 		return numerator / denominator;
 	}
+}
+
+class Corner {
+	
+	horizontalLine = null;
+	diagonalLine = null;
+	verticalLine = null;
+	
+	constructor(horizontalLine, diagonalLine, verticalLine){
+		const _self = this;
+		_self.horizontalLine = horizontalLine;
+		_self.diagonalLine = diagonalLine;
+		_self.verticalLine = verticalLine;
+	}
+	
 }
 
 class Rectangle {
@@ -60,130 +82,724 @@ class Rectangle {
 	}
 	
 	isIntersectedByPoint(point, radius = 0){
-		if(point.x + radius >= this.topLeftPoint.x &&
-			point.x - radius <= this.bottomRightPoint.x &&
-			point.y + radius >= this.topLeftPoint.y &&
-			point.y - radius <= this.bottomRightPoint.y){
+		const _self = this;
+		if(point.x + radius >= _self.topLeftPoint.x &&
+			point.x - radius <= _self.bottomRightPoint.x &&
+			point.y + radius >= _self.topLeftPoint.y &&
+			point.y - radius <= _self.bottomRightPoint.y){
 			return true;
 		}
 		return false;
 	}
 }
 
-class InterceptPredictor {
+class Board {
+	
+	player1 = null;
+	player2 = null;
+	player3 = null;
+	player4 = null;
+	ball = null;
+	isStarted = false;
+	gameLoop = null;
+	isGoalLineCrossed = null;
+	
 	constructor(){
-		this.model = this.#createModel();
+		const _self = this;
+		_self.ball = new Ball();
 	}
+	
+	async initGame(){
+		const _self = this;
+		
+		// ============================================
+		// Player Creation
+		// ============================================
+		document.querySelectorAll(".switch-toggle input:checked").forEach(el => {
+			
+			var elementId = el.id;
+			var selection_playerNumber = elementId.split("_");
+			var selection = selection_playerNumber[0];
+			var playerNumber = selection_playerNumber[1];
+			
+			var isHuman = selection === 'p';
+			var isAi = selection === 'ai';
+			
+			if(playerNumber === '1'){
+				
+				_self.player1 = new Player(1, 25, isHuman, isAi);
+				
+			}else if(playerNumber === '2'){
+			
+				_self.player2 = new Player(2, 25, isHuman, isAi);
+				
+			}else if(playerNumber === '3'){
+				
+				_self.player3 = new Player(3, 25, isHuman, isAi);
+				
+			}else if(playerNumber === '4'){
+			
+				_self.player4 = new Player(4, 25, isHuman, isAi);
+				
+			}
+			
+			document.querySelector('#bumper' + playerNumber + ' .playerLabel').innerHTML = elementId.toUpperCase();
+			
+		});
+		
+		_self.ball.resetBall();
+		
+		await _self.startGame();
+	}
+	
+	async startGame(){
+		const _self = this;
+		
+		_self.gameLoop = setInterval(async function(){
+			
+			await _self.player1.iterateSlide();
+			await _self.player2.iterateSlide();
+			await _self.player3.iterateSlide();
+			await _self.player4.iterateSlide();
+			
+			//for each iteration, update the ball state based on position, angle and speed
+			_self.ball.updateBallState();
+			
+			_self.recalculateIntercepts();
+			
+			//then redraw the ball based on the new ball state
+			_self.ball.drawBall();
+			
+		}, INTERVAL_DURATION_MS);
+		
+		_self.isStarted = true;
+	}
+	
+	stopGame(){
+		const _self = this;
+		clearInterval(_self.gameLoop);
+		_self.isStarted = false;
+	}
+	
+	recalculateIntercepts(){
+		const _self = this;
+		
+		if(_self.player1.shouldRecalculateIntercept){
+			_self.player1.drawNextIntercept();
+			_self.player1.shouldRecalculateIntercept = false;
+		}
+		
+		if(_self.player2.shouldRecalculateIntercept){
+			_self.player2.drawNextIntercept();
+			_self.player2.shouldRecalculateIntercept = false;
+		}
+		
+		if(_self.player3.shouldRecalculateIntercept){
+			_self.player3.drawNextIntercept();
+			_self.player3.shouldRecalculateIntercept = false;
+		}
+		
+		if(_self.player4.shouldRecalculateIntercept){
+			_self.player4.drawNextIntercept();
+			_self.player4.shouldRecalculateIntercept = false;
+		}
+		
+	}
+	
+}
+
+class BallState {
+	
+	speed = 0;
+	angle = 0;
+	//position of the center of the ball
+	position = null;
+	/*spin = {
+		clockwise: true,
+		speed: 10
+	};*/
+	
+	constructor(speed, angle, ball_x = 0, ball_y = 0){
+		const _self = this;
+		_self.speed = speed;
+		_self.angle = angle;
+		_self.position = new Point(ball_x, ball_y);
+	}
+}
+
+class Ball {
+	
+	#ballElement = null;
+	ballState = null;
+	
+	constructor(){
+		const _self = this;
+		_self.ballState = new BallState();
+	}
+	
+	#getBallElement(){
+		const _self = this;
+		if(_self.#ballElement == null){
+			_self.#ballElement = document.getElementById("ball");
+		}
+		return _self.#ballElement;
+	}
+	
+	increaseSpeed(increment = 5){
+		const _self = this;
+		_self.ballState.speed += increment;
+	}
+	
+	resetBall(){
+		const _self = this;
+		
+		//initialize new ball
+		_self.ballState.speed = MIN_BALL_SPEED;
+		
+		_self.ballState.angle = getRandomAngle();
+		
+		var randomX = (BOARD_WIDTH / 2) - (BOARD_WIDTH / 8) + getRandomNumber(0, BOARD_WIDTH/4);
+		var randomY = (BOARD_HEIGHT / 2) - (BOARD_HEIGHT / 8) + getRandomNumber(0, BOARD_HEIGHT/4);
+		_self.ballState.position = new Point(randomX, randomY);
+		
+		BOARD.player1.drawNextIntercept();
+		BOARD.player2.drawNextIntercept();
+		BOARD.player3.drawNextIntercept();
+		BOARD.player4.drawNextIntercept();
+		
+	}
+	
+	updateBallState(){
+		const _self = this;
+		
+		var newBallState = new BallState(_self.ballState.speed, _self.ballState.angle, _self.ballState.position.x, _self.ballState.position.y);
+		
+		//to prevent clipping through edges at higher speeds, divide the distance to move into steps that are smaller than the collision radius and check for collisions at each step before finalizing the new ball position
+		var numberOfLoops = parseInt(_self.ballState.speed / (BALL_RADIUS - 1)) + 1;
+		for(var x=0; x<numberOfLoops; x++){
+			
+			var stepSpeed = _self.ballState.speed / numberOfLoops;
+			
+			//calculate new position before checking for boundary intersections
+			var newPosition = getNewPositionFromAngleAndSpeed(newBallState.position, _self.ballState.angle, stepSpeed);
+			
+			newBallState.position = newPosition;
+			
+			//recalculate new position based on boundary intersections
+			
+			//check for goal line crossing
+			if(BOARD.isGoalLineCrossed == null){
+				if(newBallState.position.y < 0 + GOAL_DEPTH - BALL_RADIUS){
+					BOARD.isGoalLineCrossed = 1;
+				}else if(newBallState.position.x < 0 + GOAL_DEPTH - BALL_RADIUS){
+					BOARD.isGoalLineCrossed = 2;
+				}else if(newBallState.position.x > BOARD_WIDTH - GOAL_DEPTH + BALL_RADIUS){
+					BOARD.isGoalLineCrossed = 3;
+				}else if(newBallState.position.y > BOARD_HEIGHT - GOAL_DEPTH + BALL_RADIUS){
+					BOARD.isGoalLineCrossed = 4;
+				}
+			}
+			
+			//check for score
+			if(newBallState.position.y < 0 - BALL_RADIUS){
+				BOARD.player1.processScore();
+				return;
+			}else if(newBallState.position.x < 0 - BALL_RADIUS){
+				BOARD.player2.processScore();
+				return;
+			}else if(newBallState.position.x > BOARD_WIDTH + BALL_RADIUS){
+				BOARD.player3.processScore();
+				return;
+			}else if(newBallState.position.y > BOARD_HEIGHT + BALL_RADIUS){
+				BOARD.player4.processScore();
+				return;
+			}
+			
+			//Corners
+			adjustForCornerSquareCollision_IsIntersected(newBallState, 1);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			adjustForCornerSquareCollision_IsIntersected(newBallState, 2);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			adjustForCornerSquareCollision_IsIntersected(newBallState, 3);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			adjustForCornerSquareCollision_IsIntersected(newBallState, 4);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			//Bumpers
+			adjustForBumperCollision_IsIntersected(newBallState, 1);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			adjustForBumperCollision_IsIntersected(newBallState, 2);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			adjustForBumperCollision_IsIntersected(newBallState, 3);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			adjustForBumperCollision_IsIntersected(newBallState, 4);
+			setRecalculateIfNearGoal(newBallState.position);
+			
+			//update ball state with new values
+			_self.ballState = newBallState;
+		}
+	}
+	
+	drawBall(){
+		const _self = this;
+		
+		var ballElement = _self.#getBallElement();
+		ballElement.style.left = (_self.ballState.position.x - BALL_RADIUS) + "px";
+		ballElement.style.top = (_self.ballState.position.y - BALL_RADIUS) + "px";
+		//ballElement.style.transform = newSpin?
+		
+		var statsElement = document.getElementById("ballStats");
+		statsElement.textContent = "x:" + parseInt(_self.ballState.position.x) + " y:" + parseInt(_self.ballState.position.y) + " θ:" + _self.ballState.angle + "°";
+	}
+	
+}
+
+class Player {
+	
+	playerNumber = 0;
+	isHuman = false;
+	isAI = false;
+	score = 0;
+	slideSpeed = 0;
+	movingDirection = null;
+	intercept_predictor = null;
+	ai_prediction = null;
+	shouldRecalculateIntercept = false;
+	nextInterceptPosition = null;
+	
+	constructor(playerNumber, speed = MIN_BALL_SPEED, isHuman = false, isAI = false){
+		
+		const _self = this;
+		
+		_self.playerNumber = playerNumber;
+		_self.slideSpeed = speed;
+		_self.isHuman = isHuman;
+		_self.isAI = isAI;
+		
+		// Initialize model for AI players
+		if (_self.isAI) {
+			_self.intercept_predictor = INTERCEPT_PREDICTOR;
+		}
+		
+		if(isHuman){
+			
+			document.addEventListener('keydown', function(event) {
+				if (event.repeat) { return; }
+				
+				if(event.keyCode == 37) {
+					_self.startSlide(DIRECTIONS.LEFT);
+				} else if(event.keyCode == 39) {
+					_self.startSlide(DIRECTIONS.RIGHT);
+				}
+			});
+			
+			document.addEventListener('keyup', function(event) {
+				if (event.repeat) { return; }
+				
+				switch (event.keyCode){
+					case 37:
+					case 39:
+						_self.stopSlide();
+						break;
+					default:
+						return;
+				}
+			});
+			
+		}
+		
+	}
+	
+	startSlide(direction){
+		const _self = this;
+		_self.movingDirection = direction;
+	}
+	
+	getBumperMoveTowardTarget(bumper_x, target_x){
+		//stay
+		var move = 1;
+		if(target_x + BALL_RADIUS < bumper_x){
+			//left
+			move = 0;
+		}else if(target_x - BALL_RADIUS > bumper_x){
+			//right
+			move = 2;
+		}
+		
+		return move;
+	}
+	
+	getMoveFromAI(ball_x, ball_y, ball_velocity_x, ball_velocity_y){
+		const _self = this;
+		
+		var predicted_intercept_xy = null;
+		
+		//if prediction already exists for the current velocity, use it instead of getting a new prediction
+		if(_self.ai_prediction && _self.ai_prediction[0] === ball_velocity_x && _self.ai_prediction[1] === ball_velocity_y){
+			
+			predicted_intercept_xy = _self.ai_prediction[2];
+			
+		}else{
+			
+			//Normalization Logic
+			const max_bounce_number = 40;
+			
+			const ball_xy_normalized = normalizeBallPosition(new Point(ball_x, ball_y));
+			const ball_velocity_xy_normalized = normalizeBallVelocity(new Point(ball_velocity_x, ball_velocity_y));
+			
+			var state = [
+				ball_xy_normalized.x,
+				ball_xy_normalized.y,
+				ball_velocity_xy_normalized.x,
+				ball_velocity_xy_normalized.y
+			];
+			
+			var bounce_number = 0;
+			
+			//step through each subsequent collision state until a state position is on the goalline
+			while(!isGoallineBounce(state) && bounce_number < max_bounce_number){
+				state = _self.intercept_predictor.predictNextState(state);
+				bounce_number++;
+			}
+			
+			if(bounce_number == max_bounce_number){
+				//default to center when rally is too long to predict at the current bounce
+				predicted_intercept_xy = new Point(BOARD_WIDTH / 2, BOARD_HEIGHT / 2);
+			}else{
+				predicted_intercept_xy = denormalizeBallPosition(new Point(state[0], state[1]));
+			}
+			//END Normalization Logic
+			
+			_self.ai_prediction = [ball_velocity_x, ball_velocity_y, predicted_intercept_xy];
+			
+			const predictBallElement = document.getElementById("predictBall" + _self.playerNumber);
+			predictBallElement.style.left = (predicted_intercept_xy.x - BALL_RADIUS) + "px";
+			predictBallElement.style.top = (predicted_intercept_xy.y - BALL_RADIUS) + "px";
+			
+		}
+		
+		return predicted_intercept_xy.x;
+	}
+	
+	async iterateSlide (){
+		var _self = this;
+		
+		if(!_self.isHuman){
+			
+			const bumper_x_canonical = getBumperXCanonical(_self.playerNumber);
+			const ball_xy_canonical = getBallPositionCanonical(BOARD.ball.ballState.position, _self.playerNumber);
+			
+			var target_x = null;
+			
+			if(_self.isAI){
+				
+				const ball_velocity_xy_canonical = getBallVelocityCanonical(BOARD.ball.ballState, _self.playerNumber);
+				
+				//neural network
+				//target is a predicted intercept x position
+				target_x = _self.getMoveFromAI(ball_xy_canonical.x, ball_xy_canonical.y, ball_velocity_xy_canonical.x, ball_velocity_xy_canonical.y);
+				
+			}else if(!_self.isHuman){
+				
+				//hardcoded CPU
+				//target is the current ball x position
+				target_x = ball_xy_canonical.x;
+				
+			}
+			
+			const move = _self.getBumperMoveTowardTarget(bumper_x_canonical, target_x);
+			
+			//move: 0=left, 1=stay, 2=right
+			if(move == 0){
+				_self.startSlide(DIRECTIONS.LEFT);
+			}else if(move == 2){
+				_self.startSlide(DIRECTIONS.RIGHT);
+			}else{
+				_self.stopSlide();
+			}
+		}
+		
+		const nearCornerOffset = getElementPropertyAsFloat('cornerSquare3', 'width');
+		const farCornerOffset = nearCornerOffset + getElementPropertyAsFloat('goal4', 'width') - getElementPropertyAsFloat('bumper4', 'width');
+		
+		var bumperElement = document.getElementById("bumper" + _self.playerNumber);
+		var bumperStyles = window.getComputedStyle(bumperElement,null);
+		
+		if(_self.movingDirection == DIRECTIONS.LEFT){
+			
+			if(_self.playerNumber == 4){
+				//left
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
+				var newPosition = currentPosition - _self.slideSpeed;
+				if(newPosition <= nearCornerOffset){
+					newPosition = nearCornerOffset;
+				}
+				bumperElement.style.left = newPosition + "px";
+			}else if(_self.playerNumber == 1){
+				//right
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
+				var newPosition = currentPosition + _self.slideSpeed;
+				if(newPosition >= farCornerOffset){
+					newPosition = farCornerOffset;
+				}
+				bumperElement.style.left = newPosition + "px";
+			}else if(_self.playerNumber == 2){
+				//up
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
+				var newPosition = currentPosition - _self.slideSpeed;
+				if(newPosition <= nearCornerOffset){
+					newPosition = nearCornerOffset;
+				}
+				bumperElement.style.top = newPosition + "px";
+			}else if(_self.playerNumber == 3){
+				//down
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
+				var newPosition = currentPosition + _self.slideSpeed;
+				if(newPosition >= farCornerOffset){
+					newPosition = farCornerOffset;
+				}
+				bumperElement.style.top = newPosition + "px";
+			}
+			
+		}else if(_self.movingDirection == DIRECTIONS.RIGHT){
+			
+			if(_self.playerNumber == 4){
+				//right
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
+				var newPosition = currentPosition + _self.slideSpeed;
+				if(newPosition >= farCornerOffset){
+					newPosition = farCornerOffset;
+				}
+				bumperElement.style.left = newPosition + "px";
+			}else if(_self.playerNumber == 1){
+				//left
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
+				var newPosition = currentPosition - _self.slideSpeed;
+				if(newPosition <= nearCornerOffset){
+					newPosition = nearCornerOffset;
+				}
+				bumperElement.style.left = newPosition + "px";
+			}else if(_self.playerNumber == 2){
+				//down
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
+				var newPosition = currentPosition + _self.slideSpeed;
+				if(newPosition >= farCornerOffset){
+					newPosition = farCornerOffset;
+				}
+				bumperElement.style.top = newPosition + "px";
+			}else if(_self.playerNumber == 3){
+				//up
+				var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
+				var newPosition = currentPosition - _self.slideSpeed;
+				if(newPosition <= nearCornerOffset){
+					newPosition = nearCornerOffset;
+				}
+				bumperElement.style.top = newPosition + "px";
+			}
+			
+		}
+		
+	}
+	
+	stopSlide(){
+		var _self = this;
+		_self.movingDirection = null;
+	}
+	
+	processScore(){
+		var _self = this;
+		
+		var bumperLabelElement = document.getElementById("bumper" + _self.playerNumber).getElementsByClassName("bumperLabel")[0];
+		
+		var goalElement = document.getElementById("goal" + _self.playerNumber);
+		goalElement.classList.add("goalHighlight");
+		setTimeout(function(){
+			goalElement.classList.remove("goalHighlight");
+		}, 300);
+		
+		_self.score++;
+		bumperLabelElement.textContent = _self.score;
+		
+		const resetTime = getUnixSeconds();
+		if(_self.playerNumber != BOARD.isGoalLineCrossed){
+			//verify the ball goes out of bounds shortly after crossing the goal line
+			console.log(BOARD.isGoalLineCrossed, _self.playerNumber);
+		}
+		BOARD.isGoalLineCrossed = null;
+		
+		BOARD.ball.resetBall();
+	}
+	
+	drawNextIntercept(){
+		const _self = this;
+		
+		var nextInterceptPosition = calculateBallIntercept(_self.playerNumber, BOARD.ball.ballState);
+		
+		//may fail to calculate the intercept on very long rallies
+		if(nextInterceptPosition !== undefined){
+			const predictBallElement = document.getElementById("calculateBall" + _self.playerNumber);
+			predictBallElement.style.left = (nextInterceptPosition.x - BALL_RADIUS) + "px";
+			predictBallElement.style.top = (nextInterceptPosition.y - BALL_RADIUS) + "px";
+			
+			_self.nextInterceptPosition = nextInterceptPosition;
+		}
+	}
+	
+}
+
+class InterceptPredictor {
+	
+	#model = null;
 	
 	#createModel() {
 		const model = tf.sequential();
 		
 		model.add(tf.layers.dense({
-			units: 32,
+			units: 128,
 			activation: 'relu',
 			inputShape: [4] // ball_x_normalized, ball_y_normalized, ball_velocity_x_normalized, ball_velocity_y_normalized
 		}));
 		model.add(tf.layers.dense({
-			units: 32,
+			units: 128,
 			activation: 'relu'
 		}));
 		model.add(tf.layers.dense({
-			units: 1,
+			units: 128,
+			activation: 'relu'
+		}));
+		model.add(tf.layers.dense({
+			units: 4, // ball_x_normalized', ball_y_normalized', ball_velocity_x_normalized', ball_velocity_y_normalized'
 			activation: 'linear'
 		}));
 		
-		model.compile({
-			optimizer: tf.train.adam(0.001),
-			loss: 'meanSquaredError'
-		});
+		this.#compileModel(model);
 		
 		return model;
 	}
 	
+	#compileModel(model){
+		
+		model.compile({
+			optimizer: tf.train.adam(0.0003),
+			loss: 'meanSquaredError'
+		});
+		
+	}
+	
 	async trainModel(){
-		let epochs = 500;
+		
+		this.#model = this.#createModel();
+		
+		let epochs = 10000;
 		let batchSize = 256;
+		
+		const validation = generateInputsAndLabels(5000);
+		const validationXs = tf.tensor2d(validation[0]);
+		const validationYs = tf.tensor2d(validation[1]);
 		
 		for (let epoch = 0; epoch < epochs; epoch++) {
 			
 			// Generate random valid game states
-			const inputs = [];
-			const labels = [];
+			const inputs_labels = generateInputsAndLabels(batchSize);
 			
-			const playableAreaWidth = BOARD_WIDTH - (GOAL_DEPTH * 2);
-			
-			for (let i = 0; i < batchSize; i++) {
-				
-				const ball_x_normalized = Math.random();
-				const ball_x = (ball_x_normalized * playableAreaWidth) + GOAL_DEPTH;
-				
-				const ball_y_normalized = Math.random();
-				const ball_y = (ball_y_normalized * playableAreaWidth) + GOAL_DEPTH;
-				
-				const ball_angle = getRandomAngle();
-				//limiting max speed for training to 30 instead of MAX_BALL_SPEED
-				const ball_speed = (Math.random() * (30 - MIN_BALL_SPEED)) + MIN_BALL_SPEED;
-				const delta_xy = getDeltaXY(ball_angle, ball_speed);
-				
-				const ball_velocity_x_normalized = normalizeBallVelocity(delta_xy.x);
-				const ball_velocity_y_normalized = normalizeBallVelocity(delta_xy.y);
-				
-				//should test always be moving toward goalline?
-				
-				const startingBallState = {
-					speed: ball_speed,
-					angle: ball_angle,
-					position: new Point(ball_x, ball_y)
-				};
-				
-				const actual_intercept_position = predictBallIntercept(4, startingBallState);
-				
-				//only train on data if the correct output was successfully calculated
-				if(actual_intercept_position !== undefined){
-					
-					const actual_intercept_x_normalized = (actual_intercept_position.x - GOAL_DEPTH) / playableAreaWidth;
-					
-					inputs.push([
-						ball_x_normalized,
-						ball_y_normalized,
-						ball_velocity_x_normalized,
-						ball_velocity_y_normalized
-					]);
-					
-					labels.push([actual_intercept_x_normalized]);
-					
-				}
-				
-			}
+			const inputs = inputs_labels[0];
+			const labels = inputs_labels[1];
 			
 			const xs = tf.tensor2d(inputs);
 			const ys = tf.tensor2d(labels);
-			const result = await this.model.fit(xs, ys, { epochs: 1, verbose: 0 });
+			const result = await this.#model.fit(xs, ys, { epochs: 1, verbose: 0 });
 			xs.dispose();
 			ys.dispose();
 			
-			if (epoch % 50 === 0) console.log(`Epoch ${epoch}: loss = ${result.history.loss[0].toFixed(6)}`);
+			if (epoch % 50 === 0){
+				var training_loss = result.history.loss[0];
+				var validation_loss = this.evaluateModel(validationXs, validationYs);
+				console.log(`Epoch ${epoch}: train=${training_loss.toFixed(6)} val=${validation_loss.toFixed(6)}`);
+				extendTracesForTrainingLossGraph(epoch, training_loss, validation_loss);
+			}
 		}
+		
+		//automatically save result in local storage for persistence
+		await this.saveModelToLocalStorage();
+		
 	}
 	
-	loadModel(model){
-		this.model = model;
+	setModel(model){
+		this.#compileModel(model);
+		this.#model = model;
 	}
 	
-	async saveModel(path){
-		this.model.save(path);
+	async loadModel(path){
+		const model = await tf.loadLayersModel(path);
+		this.setModel(model);
 	}
 	
-	predictX(state) {
-		return tf.tidy(() => {
-			const stateTensor = tf.tensor2d([state]);
-			const prediction = this.model.predict(stateTensor);
-			return prediction.argMax(-1).dataSync()[0];
+	async importModel(jsonFile, weightsFile){
+		const model = await tf.loadLayersModel(
+			tf.io.browserFiles([jsonFile, weightsFile])
+		);
+		this.setModel(model);
+		await this.saveModelToLocalStorage();
+	}
+	
+	async saveModelToLocalStorage(){
+		this.#model.save(LOCAL_STORAGE_PATH);
+		const storage_timestamp = new Date().toISOString();
+		localStorage.setItem(LOCAL_STORAGE_TIMESTAMP_PATH, storage_timestamp);
+	}
+	
+	async downloadModel(path){
+		this.#model.save(path);
+	}
+	
+	evaluateModel(validationXs, validationYs){
+		const evaluation_tensor = this.#model.evaluate(validationXs, validationYs);
+		const validation_loss = evaluation_tensor.dataSync()[0];
+		evaluation_tensor.dispose();
+		return validation_loss;
+	}
+	
+	predictNextState(input_state) {
+		
+		const predicted_state = tf.tidy(() => {
+			const stateTensor = tf.tensor2d(input_state, [1, 4]);
+			const prediction = this.#model.predict(stateTensor);
+			return prediction.arraySync()[0];
 		});
+		
+		return predicted_state;
+	}
+	
+	predictBatchOfStates(inputs){
+		const predictions = tf.tidy(() => {
+			const stateTensor = tf.tensor2d(inputs, [inputs.length, 4]);
+			const prediction = this.#model.predict(stateTensor);
+			return prediction.arraySync();
+		});
+		
+		return predictions;
 	}
 }
 
 const INTERCEPT_PREDICTOR = new InterceptPredictor();
+(async () => {
+	//initialize with previously trained model if it exists
+	const models = await tf.io.listModels();
+	if(models[LOCAL_STORAGE_PATH]){
+		await INTERCEPT_PREDICTOR.loadModel(LOCAL_STORAGE_PATH);
+		
+		const storage_timestamp = localStorage.getItem(LOCAL_STORAGE_TIMESTAMP_PATH);
+		updateStylesWithModelAdded(storage_timestamp);
+	}
+})();
+
+const BOARD = new Board();
 
 function getRandomNumber(min, max){
 	return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -215,27 +831,170 @@ function getRandomAngle(){
 	return (getRandomNumber(0, 35) + 5) + (45 * getRandomNumber(0,7));
 }
 
+function graphPosition(x, y){
+	const newDiv = document.createElement('div');
+	newDiv.style.position = 'absolute'; 
+	newDiv.style.top = y+'px';
+	newDiv.style.left = x+'px';
+	newDiv.style.width = '4px';
+	newDiv.style.height = '4px';
+	newDiv.style.backgroundColor = 'red';
+	newDiv.style.zIndex = '301';
+	document.body.appendChild(newDiv);
+}
+
+function getRandomPosition(){
+	const x = (Math.random() * (PLAYABLE_AREA_WIDTH - (2 * BALL_RADIUS))) + GOAL_DEPTH + BALL_RADIUS;
+	const y = (Math.random() * (PLAYABLE_AREA_WIDTH - (2 * BALL_RADIUS))) + GOAL_DEPTH + BALL_RADIUS;
+	//if the position is inside one of the corners, generate a new position
+	if(y <= -x + (3*GOAL_DEPTH) + BALL_RADIUS_SQUARE_HYPOTENUSE ||
+		y >= x + BOARD_HEIGHT - (3*GOAL_DEPTH) - BALL_RADIUS_SQUARE_HYPOTENUSE ||
+		y <= x + (3*GOAL_DEPTH) - BOARD_WIDTH + BALL_RADIUS_SQUARE_HYPOTENUSE ||
+		y >= -x + (BOARD_WIDTH - (3*GOAL_DEPTH)) + BOARD_HEIGHT - BALL_RADIUS_SQUARE_HYPOTENUSE){
+		return getRandomPosition();
+	}
+	return new Point(x, y);
+}
+
+//Rotating to player 4 frame of reference
+function getBallPositionCanonical(ballPosition, playerNumber){
+	var canonicalPosition = new Point(0, 0);
+	
+	if(playerNumber === 4){
+		//0-1000, 0-1000
+		canonicalPosition = new Point(ballPosition.x, ballPosition.y);
+	}else if(playerNumber === 1){
+		//1000-0, 1000-0
+		canonicalPosition = new Point(BOARD_WIDTH - ballPosition.x, BOARD_HEIGHT - ballPosition.y);
+	}else if(playerNumber === 2){
+		//rotating counterclockwise
+		canonicalPosition = new Point(ballPosition.y, BOARD_WIDTH - ballPosition.x);
+	}else if(playerNumber === 3){
+		//rotating clockwise
+		canonicalPosition = new Point(BOARD_HEIGHT - ballPosition.y, ballPosition.x);
+	}
+	
+	return canonicalPosition;
+}
+//Rotating to player 4 frame of reference
+function getBallVelocityCanonical(ballState, playerNumber){
+	var nextBallPosition = getNewPositionFromAngleAndSpeed(ballState.position, ballState.angle, ballState.speed);
+	
+	//player 4
+	var ball_velocity_x = nextBallPosition.x - ballState.position.x;
+	var ball_velocity_y = nextBallPosition.y - ballState.position.y;
+	var canonicalVelocity = new Point(ball_velocity_x, ball_velocity_y);
+	
+	if(playerNumber === 1){
+		//inverted
+		var ballVelocityXRotated = (-1) * ball_velocity_x;
+		var ballVelocityYRotated = (-1) * ball_velocity_y;
+		canonicalVelocity = new Point(ballVelocityXRotated, ballVelocityYRotated);
+	}else if(playerNumber === 2){
+		//rotating counterclockwise
+		var ballVelocityXRotated = ball_velocity_y;
+		var ballVelocityYRotated = (-1) * ball_velocity_x;
+		canonicalVelocity = new Point(ballVelocityXRotated, ballVelocityYRotated);
+	}else if(playerNumber === 3){
+		//rotating clockwise
+		var ballVelocityXRotated = (-1) * ball_velocity_y;
+		var ballVelocityYRotated = ball_velocity_x;
+		canonicalVelocity = new Point(ballVelocityXRotated, ballVelocityYRotated);
+	}
+	
+	return canonicalVelocity;
+}
+//Rotating to player 4 frame of reference
+function getBumperXCanonical(playerNumber){
+	
+	var bumperLateralPosition = 0;
+	
+	if(playerNumber === 1 || playerNumber === 4){
+	
+		//300-700
+		bumperLateralPosition = getElementPropertyAsFloat("bumper" + playerNumber, 'left') + getElementPropertyAsFloat("bumper" + playerNumber, 'width') / 2;
+		
+		if(playerNumber === 1){
+			//700-300
+			bumperLateralPosition = BOARD_WIDTH - bumperLateralPosition;
+		}
+		
+	}else if(playerNumber === 2 || playerNumber === 3){
+		
+		//300-700
+		bumperLateralPosition = getElementPropertyAsFloat("bumper" +  playerNumber, 'top') + getElementPropertyAsFloat("bumper" +  playerNumber, 'height') / 2;
+		
+		if(playerNumber === 3){
+			//700-300
+			bumperLateralPosition = BOARD_WIDTH - bumperLateralPosition;
+		}
+		
+	}
+	
+	return bumperLateralPosition;
+}
+
+function isGoallineBounce(state){
+	const ball_xy = denormalizeBallPosition(new Point(state[0],state[1]));
+	const velocity_xy = denormalizeBallVelocity(new Point(state[2],state[3]));
+	const goalline_y = BOARD_HEIGHT - GOAL_DEPTH;
+	
+	const distance_y = goalline_y - ball_xy.y;
+	const inverted_velocity_x = velocity_xy.x * (-1);
+	const inverted_velocity_y = velocity_xy.y * (-1);
+	const distance_x = ((distance_y / inverted_velocity_y) * inverted_velocity_x);
+	const intercept_x = ball_xy.x + distance_x;
+	
+	//if ball is close enough to the goalline for the current frame to possibly be a rebound
+	//and if reversing the ball velocity produces an intersection with a valid location on the goalline
+	//then the bounce was on the goalline
+	if(inverted_velocity_y >= distance_y && intercept_x >= (2 * GOAL_DEPTH) + BALL_RADIUS && intercept_x <= BOARD_WIDTH - ((2 * GOAL_DEPTH) + BALL_RADIUS)){
+		return true;
+	}
+	return false;
+}
+
 function normalizeAngle(angle){
 	//double modulus for negative angles
 	return ((angle % 360) + 360) % 360;
 }
 
-function normalize(absoluteValue, min, max){
-	return (Math.sign(absoluteValue) * (Math.abs(absoluteValue) - min)) / (max - min);
+function normalizeBallVelocity(ball_velocity_xy){
+	//normalize to -1,1 range
+	const ball_velocity_x_normalized = ball_velocity_xy.x / MAX_BALL_SPEED;
+	//inverting y-axis
+	const ball_velocity_y_normalized = (-1) * ball_velocity_xy.y / MAX_BALL_SPEED;
+	return new Point(ball_velocity_x_normalized, ball_velocity_y_normalized);
 }
 
-function normalizeBallVelocity(ballVelocity){
-	return normalize(ballVelocity, MIN_BALL_SPEED, MAX_BALL_SPEED);
+function normalize(absoluteValue, min, max){
+	return (absoluteValue - min) / (max - min);
 }
 
 function normalizeBallPosition(ball_xy){
-	const ball_x_normalized = normalize(ball_xy.x, 0 + GOAL_DEPTH, BOARD_WIDTH - GOAL_DEPTH);
-	const ball_y_normalized = normalize(ball_xy.y, 0 + GOAL_DEPTH, BOARD_HEIGHT - GOAL_DEPTH);
+	//normalize to -0.5,0.5 range
+	const ball_x_normalized = normalize(ball_xy.x, 0 + GOAL_DEPTH, BOARD_WIDTH - GOAL_DEPTH) - 0.5;
+	//inverting y-axis
+	const ball_y_normalized = (1 - normalize(ball_xy.y, 0 + GOAL_DEPTH, BOARD_HEIGHT - GOAL_DEPTH)) - 0.5;
 	return new Point(ball_x_normalized, ball_y_normalized);
 }
 
-function normalizeBumperX(bumper_x){
-	return normalize(bumper_x, 0 + GOAL_DEPTH, BOARD_WIDTH - GOAL_DEPTH);
+function denormalizeBallVelocity(ball_velocity_xy_normalized){
+	const ball_velocity_x = ball_velocity_xy_normalized.x * MAX_BALL_SPEED;
+	//inverting y-axis
+	const ball_velocity_y = (-1) * ball_velocity_xy_normalized.y * MAX_BALL_SPEED;
+	return new Point(ball_velocity_x, ball_velocity_y);
+}
+
+function denormalize(normalized_value, min, max){
+	return (normalized_value * (max - min)) + min;
+}
+
+function denormalizeBallPosition(ball_xy_normalized){
+	const ball_x = denormalize(ball_xy_normalized.x + 0.5, 0 + GOAL_DEPTH, BOARD_WIDTH - GOAL_DEPTH);
+	//inverting y-axis
+	const ball_y = denormalize(1 - (ball_xy_normalized.y + 0.5), 0 + GOAL_DEPTH, BOARD_HEIGHT - GOAL_DEPTH);
+	return new Point(ball_x, ball_y);
 }
 
 function getDeltaXY(angle, speed){
@@ -273,6 +1032,12 @@ function getDeltaXY(angle, speed){
 	return new Point(changeX, changeY);
 }
 
+function getAngleAndSpeed(deltaXY){
+	const angle = (Math.atan2(deltaXY.x, -deltaXY.y) * (180 / Math.PI) + 360) % 360;
+	const speed = Math.hypot(deltaXY.x, deltaXY.y);
+	return [angle, speed];
+}
+
 function getNewPositionFromAngleAndSpeed(currentPosition, angle, speed){
 	var deltaXY = getDeltaXY(angle, speed);
 	return new Point(currentPosition.x + deltaXY.x, currentPosition.y + deltaXY.y);
@@ -282,253 +1047,225 @@ function getUnixSeconds(){
 	return Math.floor(Date.now() / 1000);
 }
 
-function predictBallIntercept(playerNumber, startingBallState){
+function calculateNextState(input_state_normalized){
 	
-	var currentPosition = new Point(startingBallState.position.x, startingBallState.position.y);
+	const ball_xy = denormalizeBallPosition(new Point(input_state_normalized[0], input_state_normalized[1]));
+	const ball_velocity_xy = denormalizeBallVelocity(new Point(input_state_normalized[2], input_state_normalized[3]));
+	const angle_speed = getAngleAndSpeed(ball_velocity_xy);
 	
-	const topBoundary = 0;
-	const bottomBoundary = BOARD_HEIGHT;
-	const leftBoundary = 0;
-	const rightBoundary = BOARD_WIDTH;
+	const starting_ball_state = new BallState(angle_speed[1], angle_speed[0], ball_xy.x, ball_xy.y);
+	const new_ball_state = calculateNextCollision(starting_ball_state);
+	if(new_ball_state === undefined || new_ball_state.position === undefined){
+		//calculation failed
+		return;
+	}
 	
-	var newBallState = {
-		speed: 91000000,
-		angle: startingBallState.angle,
-		position: currentPosition
-	};
+	const ball_xy_normalized = normalizeBallPosition(new_ball_state.position);
+	const ball_velocity_xy_normalized = normalizeBallVelocity(getDeltaXY(new_ball_state.angle, new_ball_state.speed));
+	
+	const output_state_normalized = [
+		ball_xy_normalized.x,
+		ball_xy_normalized.y,
+		ball_velocity_xy_normalized.x,
+		ball_velocity_xy_normalized.y
+	];
+	
+	return output_state_normalized;
+}
+
+function calculateBallIntercept(playerNumber, startingBallState){
+	
+	var newBallState = new BallState(startingBallState.speed, startingBallState.angle, startingBallState.position.x, startingBallState.position.y);
+	
+	//looping over the predicted sequence of collisions to find the next goalline intercept for the current player
+	const max_prediction_attempts = 700;
+	for(var x=0; x<max_prediction_attempts; x++){
+		
+		newBallState = calculateNextCollision(newBallState);
+		
+		if(newBallState === undefined || newBallState.position === undefined){
+			//calculation failed
+			return;
+		}
+		
+		if(playerNumber === 1 && isNearGoal1(newBallState.position)){
+			return newBallState.position;
+		}
+		if(playerNumber === 2 && isNearGoal2(newBallState.position)){
+			return newBallState.position;
+		}
+		if(playerNumber === 3 && isNearGoal3(newBallState.position)){
+			return newBallState.position;
+		}
+		if(playerNumber === 4 && isNearGoal4(newBallState.position)){
+			return newBallState.position;
+		}
+	}
+	
+}
+
+function calculateNextCollision(startingBallState){
+	
+	var newBallState = new BallState(startingBallState.speed, startingBallState.angle, startingBallState.position.x, startingBallState.position.y);
 	
 	//to prevent clipping through edges at higher speeds, divide the distance to move into steps that are smaller than the collision radius and check for collisions at each step before finalizing the new ball position
-	var numberOfLoops = parseInt(newBallState.speed / (BALL_RADIUS - 1)) + 1;
+	var numberOfLoops = parseInt(BOARD_HYPOTENUSE / (BALL_RADIUS - 1)) + 1;
 	for(var x=0; x<numberOfLoops; x++){
 		
-		var stepSpeed = newBallState.speed / numberOfLoops;
+		var stepSpeed = BOARD_HYPOTENUSE / numberOfLoops;
 		
 		//calculate new position before checking for boundary intersections
 		var newPosition = getNewPositionFromAngleAndSpeed(newBallState.position, newBallState.angle, stepSpeed);
 		
 		newBallState.position = newPosition;
 		
-		//check if the ball is breaking the plane of a goalline
-		if(playerNumber === 1 && newBallState.position.y - BALL_RADIUS < (topBoundary + GOAL_DEPTH)){
-			return newBallState.position;
-		}
-		if(playerNumber === 2 && newBallState.position.x - BALL_RADIUS < (leftBoundary + GOAL_DEPTH)){
-			return newBallState.position;
-		}
-		if(playerNumber === 3 && newBallState.position.x + BALL_RADIUS > (rightBoundary - GOAL_DEPTH)){
-			return newBallState.position;
-		}
-		if(playerNumber === 4 && newBallState.position.y + BALL_RADIUS > (bottomBoundary - GOAL_DEPTH)){
-			return newBallState.position;
-		}
-		
 		//recalculate new position based on boundary intersections
-		var lines = {
-			horizontalLine: null,
-			diagonalLine: null,
-			verticalLine: null
-		};
 		
-		var cornerSquareWidth = getElementPropertyAsFloat('cornerSquare1', 'width');
-		var cornerSquareHeight = cornerSquareWidth;
+		//Corner 1
+		if(adjustForCornerSquareCollision_IsIntersected(newBallState, 1)){
+			return newBallState;
+		}
 		
-		//Square 1
-		var cornerSquare1Left = getElementPropertyAsFloat('cornerSquare1', 'left');
-		var cornerSquare1Top = getElementPropertyAsFloat('cornerSquare1', 'top');
+		//Corner 2
+		if(adjustForCornerSquareCollision_IsIntersected(newBallState, 2)){
+			return newBallState;
+		}
 		
-		var cornerSquare1Point1 = new Point(cornerSquare1Left, cornerSquare1Top + cornerSquareHeight);
-		var cornerSquare1Point2 = new Point(cornerSquare1Left + (cornerSquareWidth / 2), cornerSquare1Top + cornerSquareHeight);
-		var cornerSquare1Point3 = new Point(cornerSquare1Left + cornerSquareWidth, cornerSquare1Top + (cornerSquareHeight / 2));
-		var cornerSquare1Point4 = new Point(cornerSquare1Left + cornerSquareWidth, cornerSquare1Top);
+		//Corner 3
+		if(adjustForCornerSquareCollision_IsIntersected(newBallState, 3)){
+			return newBallState;
+		}
 		
-		lines = {
-			horizontalLine: new Line(cornerSquare1Point1, cornerSquare1Point2),
-			diagonalLine: new Line(cornerSquare1Point2, cornerSquare1Point3),
-			verticalLine: new Line(cornerSquare1Point3, cornerSquare1Point4)
-		};
-		adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 1);
+		//Corner 4
+		if(adjustForCornerSquareCollision_IsIntersected(newBallState, 4)){
+			return newBallState;
+		}
 		
-		//Square 2
-		var cornerSquare2Left = getElementPropertyAsFloat('cornerSquare2', 'left');
-		var cornerSquare2Top = getElementPropertyAsFloat('cornerSquare2', 'top');
-		
-		var cornerSquare2Point1 = new Point(cornerSquare2Left, cornerSquare2Top);
-		var cornerSquare2Point2 = new Point(cornerSquare2Left, cornerSquare2Top + (cornerSquareHeight / 2));
-		var cornerSquare2Point3 = new Point(cornerSquare2Left + (cornerSquareWidth / 2), cornerSquare2Top + cornerSquareHeight);
-		var cornerSquare2Point4 = new Point(cornerSquare2Left + cornerSquareWidth, cornerSquare2Top + cornerSquareHeight);
-		
-		lines = {
-			horizontalLine: new Line(cornerSquare2Point3, cornerSquare2Point4),
-			diagonalLine: new Line(cornerSquare2Point2, cornerSquare2Point3),
-			verticalLine: new Line(cornerSquare2Point1, cornerSquare2Point2)
-		};
-		adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 2);
-		
-		//Square 3
-		var cornerSquare3Left = getElementPropertyAsFloat('cornerSquare3', 'left');
-		var cornerSquare3Top = getElementPropertyAsFloat('cornerSquare3', 'top');
-		
-		var cornerSquare3Point1 = new Point(cornerSquare3Left, cornerSquare3Top);
-		var cornerSquare3Point2 = new Point(cornerSquare3Left + (cornerSquareWidth / 2), cornerSquare3Top);
-		var cornerSquare3Point3 = new Point(cornerSquare3Left + cornerSquareWidth, cornerSquare3Top + (cornerSquareHeight / 2));
-		var cornerSquare3Point4 = new Point(cornerSquare3Left + cornerSquareWidth, cornerSquare3Top + cornerSquareHeight);
-		
-		lines = {
-			horizontalLine: new Line(cornerSquare3Point1, cornerSquare3Point2),
-			diagonalLine: new Line(cornerSquare3Point2, cornerSquare3Point3),
-			verticalLine: new Line(cornerSquare3Point3, cornerSquare3Point4)
-		};
-		adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 3);
-		
-		//Square 4
-		var cornerSquare4Left = getElementPropertyAsFloat('cornerSquare4', 'left');
-		var cornerSquare4Top = getElementPropertyAsFloat('cornerSquare4', 'top');
-		
-		var cornerSquare4Point1 = new Point(cornerSquare4Left, cornerSquare4Top + cornerSquareHeight);
-		var cornerSquare4Point2 = new Point(cornerSquare4Left, cornerSquare4Top + (cornerSquareHeight / 2));
-		var cornerSquare4Point3 = new Point(cornerSquare4Left + (cornerSquareWidth / 2), cornerSquare4Top);
-		var cornerSquare4Point4 = new Point(cornerSquare4Left + cornerSquareWidth, cornerSquare4Top);
-		
-		lines = {
-			horizontalLine: new Line(cornerSquare4Point3, cornerSquare4Point4),
-			diagonalLine: new Line(cornerSquare4Point2, cornerSquare4Point3),
-			verticalLine: new Line(cornerSquare4Point1, cornerSquare4Point2)
-		};
-		adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 4);
-		
-		//Assume other goal lines will behave like walls
+		//Assume goal lines will behave like walls
 		//Goal lines
-		if(playerNumber !== 1){
-			//Goal line 1
-			var goal1Left = getElementPropertyAsFloat("goal1", 'left');
-			var goal1Top = getElementPropertyAsFloat("goal1", 'top');
-			
-			var goal1Point1 = new Point(goal1Left, goal1Top + GOAL_DEPTH);
-			var goal1Point2 = new Point(goal1Left + GOAL_BREADTH, goal1Top + GOAL_DEPTH);
-			
-			var goal1Line = new Line(goal1Point1, goal1Point2);
-			
-			adjustForBumperBottom_IsIntersected(newBallState, goal1Line);
+		if(adjustForGoallineCollision_IsIntersected(newBallState, 1)){
+			return newBallState;
 		}
-		
-		if(playerNumber !== 2){
-			//Goal line 2
-			var goal2Left = getElementPropertyAsFloat("goal2", 'left');
-			var goal2Top = getElementPropertyAsFloat("goal2", 'top');
-			
-			var goal2Point1 = new Point(goal2Left + GOAL_DEPTH, goal2Top);
-			var goal2Point2 = new Point(goal2Left + GOAL_DEPTH, goal2Top + GOAL_BREADTH);
-			
-			var goal2Line = new Line(goal2Point1, goal2Point2);
-			
-			adjustForBumperRight_IsIntersected(newBallState, goal2Line);
+		if(adjustForGoallineCollision_IsIntersected(newBallState, 2)){
+			return newBallState;
 		}
-		
-		if(playerNumber !== 3){
-			//Goal line 3
-			var goal3Left = getElementPropertyAsFloat("goal3", 'left');
-			var goal3Top = getElementPropertyAsFloat("goal3", 'top');
-			
-			var goal3Point1 = new Point(goal3Left, goal3Top);
-			var goal3Point2 = new Point(goal3Left, goal3Top + GOAL_BREADTH);
-			
-			var goal3Line = new Line(goal3Point1, goal3Point2);
-			
-			adjustForBumperLeft_IsIntersected(newBallState, goal3Line);
+		if(adjustForGoallineCollision_IsIntersected(newBallState, 3)){
+			return newBallState;
 		}
-		
-		if(playerNumber !== 4){
-			//Goal line 4
-			var goal4Left = getElementPropertyAsFloat("goal4", 'left');
-			var goal4Top = getElementPropertyAsFloat("goal4", 'top');
-			
-			var goal4Point1 = new Point(goal4Left, goal4Top);
-			var goal4Point2 = new Point(goal4Left + GOAL_BREADTH, goal4Top);
-			
-			var goal4Line = new Line(goal4Point1, goal4Point2);
-			
-			adjustForBumperTop_IsIntersected(newBallState, goal4Line);
+		if(adjustForGoallineCollision_IsIntersected(newBallState, 4)){
+			return newBallState;
 		}
 		
 	}
-	
-	//couldn't find intercept
-	console.log(numberOfLoops, newBallState.speed);
-	debugger
 }
 
-function adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, cornerSquareNumber){
+function adjustForCornerSquareCollision_IsIntersected(newBallState, cornerSquareNumber){
 	
-	var isNearGoal = [false, false, false, false];
+	var isIntersected = false;
 	
-	if(lines.horizontalLine.isIntersectedByPoint(newBallState.position, BALL_RADIUS)){
+	const cornerSquareId = "cornerSquare" + cornerSquareNumber;
+	
+	var cornerSquareWidth = getElementPropertyAsFloat(cornerSquareId, 'width');
+	var cornerSquareHeight = cornerSquareWidth;
+	
+	var cornerSquareLeft = getElementPropertyAsFloat(cornerSquareId, 'left');
+	var cornerSquareTop = getElementPropertyAsFloat(cornerSquareId, 'top');
+	
+	/*
+	Corner points map
+	      .4     4.
+	C1    |       |    C2
+	      .3     3.
+	.___.`         `.___.
+	1   2           2   1
+	
+	1   2           2   1
+	.---.           .---.
+	     `.3     3.`
+	C3    |       |    C4
+	      .4     4.
+	*/
+	
+	var cornerSquarePoint1 = null;
+	var cornerSquarePoint2 = null;
+	var cornerSquarePoint3 = null;
+	var cornerSquarePoint4 = null;
+	
+	if(cornerSquareNumber === 1){
+		cornerSquarePoint1 = new Point(cornerSquareLeft, cornerSquareTop + cornerSquareHeight);
+		cornerSquarePoint2 = new Point(cornerSquareLeft + (cornerSquareWidth / 2), cornerSquareTop + cornerSquareHeight);
+		cornerSquarePoint3 = new Point(cornerSquareLeft + cornerSquareWidth, cornerSquareTop + (cornerSquareHeight / 2));
+		cornerSquarePoint4 = new Point(cornerSquareLeft + cornerSquareWidth, cornerSquareTop);
+	}
+	if(cornerSquareNumber === 2){
+		cornerSquarePoint1 = new Point(cornerSquareLeft + cornerSquareWidth, cornerSquareTop + cornerSquareHeight);
+		cornerSquarePoint2 = new Point(cornerSquareLeft + (cornerSquareWidth / 2), cornerSquareTop + cornerSquareHeight);
+		cornerSquarePoint3 = new Point(cornerSquareLeft, cornerSquareTop + (cornerSquareHeight / 2));
+		cornerSquarePoint4 = new Point(cornerSquareLeft, cornerSquareTop);
+	}
+	if(cornerSquareNumber === 3){
+		cornerSquarePoint1 = new Point(cornerSquareLeft, cornerSquareTop);
+		cornerSquarePoint2 = new Point(cornerSquareLeft + (cornerSquareWidth / 2), cornerSquareTop);
+		cornerSquarePoint3 = new Point(cornerSquareLeft + cornerSquareWidth, cornerSquareTop + (cornerSquareHeight / 2));
+		cornerSquarePoint4 = new Point(cornerSquareLeft + cornerSquareWidth, cornerSquareTop + cornerSquareHeight);
+	}
+	if(cornerSquareNumber === 4){
+		cornerSquarePoint1 = new Point(cornerSquareLeft + cornerSquareWidth, cornerSquareTop);
+		cornerSquarePoint2 = new Point(cornerSquareLeft + (cornerSquareWidth / 2), cornerSquareTop);
+		cornerSquarePoint3 = new Point(cornerSquareLeft, cornerSquareTop + (cornerSquareHeight / 2));
+		cornerSquarePoint4 = new Point(cornerSquareLeft, cornerSquareTop + cornerSquareHeight);
+	}
+	
+	const horizontalLine = new Line(cornerSquarePoint1, cornerSquarePoint2);
+	const diagonalLine = new Line(cornerSquarePoint2, cornerSquarePoint3);
+	const verticalLine = new Line(cornerSquarePoint3, cornerSquarePoint4);
+	const corner = new Corner(horizontalLine, diagonalLine, verticalLine);
+	
+	if(corner.horizontalLine.isIntersectedByPoint(newBallState.position, BALL_RADIUS)){
 		newBallState.angle = normalizeAngle(540 - newBallState.angle);
 		if(cornerSquareNumber === 1 || cornerSquareNumber === 2){
-			newBallState.position.y = lines.horizontalLine.point1.y + BALL_RADIUS;
+			newBallState.position.y = corner.horizontalLine.point1.y + BALL_RADIUS;
 		}else{
-			newBallState.position.y = lines.horizontalLine.point1.y - BALL_RADIUS;
+			newBallState.position.y = corner.horizontalLine.point1.y - BALL_RADIUS;
 		}
-	}else if(lines.diagonalLine.isIntersectedByPoint(newBallState.position, BALL_RADIUS)){
+		isIntersected = true;
+	}else if(corner.diagonalLine.isIntersectedByPoint(newBallState.position, BALL_RADIUS)){
 		var reflectAngle = (cornerSquareNumber === 1 || cornerSquareNumber === 4) ? 450 : 630;
 		newBallState.angle = normalizeAngle(reflectAngle - newBallState.angle);
 		
-		//recalculate the intercept when diagonal deflection is near a goal line
-		var goal1Y = getElementPropertyAsFloat("goal1", 'height');
-		if(newBallState.position.y - (BALL_RADIUS * 2) < goal1Y){
-			isNearGoal[0] = true;
-		}
-		var goal2X = getElementPropertyAsFloat("goal2", 'width');
-		if(newBallState.position.x - (BALL_RADIUS * 2) < goal2X){
-			isNearGoal[1] = true;
-		}
-		var goal3X = getElementPropertyAsFloat("goal3", 'left');
-		if(newBallState.position.x + (BALL_RADIUS * 2) > goal3X){
-			isNearGoal[2] = true;
-		}
-		var goal4Y = getElementPropertyAsFloat("goal4", 'top');
-		if(newBallState.position.y + (BALL_RADIUS * 2) > goal4Y){
-			isNearGoal[3] = true;
-		}
-		
 		//to prevent glitching on the corners, bump the ball back from the collision edge by a distance equal to the perpendicular radius
-		var offsetXY = Math.sqrt((BALL_RADIUS * BALL_RADIUS) / 2);
 		if(cornerSquareNumber === 1){
-			newBallState.position.x += offsetXY;
-			newBallState.position.y += offsetXY;
+			newBallState.position.x += BALL_RADIUS_45_DEGREE_COMPONENT;
+			newBallState.position.y += BALL_RADIUS_45_DEGREE_COMPONENT;
 		}else if(cornerSquareNumber === 2){
-			newBallState.position.x -= offsetXY;
-			newBallState.position.y += offsetXY;
+			newBallState.position.x -= BALL_RADIUS_45_DEGREE_COMPONENT;
+			newBallState.position.y += BALL_RADIUS_45_DEGREE_COMPONENT;
 		}else if(cornerSquareNumber === 3){
-			newBallState.position.x += offsetXY;
-			newBallState.position.y -= offsetXY;
+			newBallState.position.x += BALL_RADIUS_45_DEGREE_COMPONENT;
+			newBallState.position.y -= BALL_RADIUS_45_DEGREE_COMPONENT;
 		}else if(cornerSquareNumber === 4){
-			newBallState.position.x -= offsetXY;
-			newBallState.position.y -= offsetXY;
+			newBallState.position.x -= BALL_RADIUS_45_DEGREE_COMPONENT;
+			newBallState.position.y -= BALL_RADIUS_45_DEGREE_COMPONENT;
 		}
-		
-	}else if(lines.verticalLine.isIntersectedByPoint(newBallState.position, BALL_RADIUS)){
+		isIntersected = true;
+	}else if(corner.verticalLine.isIntersectedByPoint(newBallState.position, BALL_RADIUS)){
 		newBallState.angle = normalizeAngle(360 - newBallState.angle);
 		if(cornerSquareNumber === 1 || cornerSquareNumber === 3){
-			newBallState.position.x = lines.verticalLine.point1.x + BALL_RADIUS;
+			newBallState.position.x = corner.verticalLine.point1.x + BALL_RADIUS;
 		}else{
-			newBallState.position.x = lines.verticalLine.point1.x - BALL_RADIUS;
+			newBallState.position.x = corner.verticalLine.point1.x - BALL_RADIUS;
 		}
+		isIntersected = true;
 	}
 	
-	return isNearGoal;
+	return isIntersected;
 }
 
-function adjustForBumperCollision_IsNearGoal(ballState, player){
+function adjustForBumperCollision_IsIntersected(newBallState, player){
 	
-	var isNearGoal = [false, false, false, false];
+	var isIntersected = false;
 	
 	var bumperId = 'bumper' + player;
-	
-	var newBallState = {
-		speed: ballState.speed,
-		angle: ballState.angle,
-		position: ballState.position
-	};
 	
 	var bumperWidth = getElementPropertyAsFloat(bumperId, 'width');
 	var bumperHeight = bumperWidth;
@@ -546,49 +1283,90 @@ function adjustForBumperCollision_IsNearGoal(ballState, player){
 	var bumperLine3 = new Line(bumperPoint3, bumperPoint4);
 	var bumperLine4 = new Line(bumperPoint4, bumperPoint1);
 	
+	//prioritize the front bumper face to prevent inverted side deflections
 	if(player === 1){
 		if(adjustForBumperBottom_IsIntersected(newBallState, bumperLine2)){
-			
-			isNearGoal[0] = true;
-			
-		}else if(adjustForBumperLeft_IsIntersected(newBallState, bumperLine1) ||
+			isIntersected = true;
+		}else if(
+			adjustForBumperLeft_IsIntersected(newBallState, bumperLine1) ||
 			adjustForBumperRight_IsIntersected(newBallState, bumperLine3) ||
-			adjustForBumperTop_IsIntersected(newBallState, bumperLine4)){
-			
+			adjustForBumperTop_IsIntersected(newBallState, bumperLine4)
+		){
+			isIntersected = true;
 		}
-	}else if(player === 2){
-		if(adjustForBumperRight_IsIntersected(newBallState, bumperLine3)){
-			
-			isNearGoal[1] = true;
-			
-		}else if(adjustForBumperTop_IsIntersected(newBallState, bumperLine4) ||
-			adjustForBumperBottom_IsIntersected(newBallState, bumperLine2) ||
-			adjustForBumperLeft_IsIntersected(newBallState, bumperLine1)){
-			
-		}
-	}else if(player === 3){
+	}
+	if(player === 2){
 		if(adjustForBumperLeft_IsIntersected(newBallState, bumperLine1)){
-			
-			isNearGoal[2] = true;
-			
-		}else if(adjustForBumperTop_IsIntersected(newBallState, bumperLine4) ||
+			isIntersected = true;
+		}else if(
 			adjustForBumperBottom_IsIntersected(newBallState, bumperLine2) ||
-			adjustForBumperRight_IsIntersected(newBallState, bumperLine3)){
-			
-		}
-	}else if(player === 4){
-		if(adjustForBumperTop_IsIntersected(newBallState, bumperLine4)){
-			
-			isNearGoal[3] = true;
-			
-		}else if(adjustForBumperLeft_IsIntersected(newBallState, bumperLine1) ||
 			adjustForBumperRight_IsIntersected(newBallState, bumperLine3) ||
-			adjustForBumperBottom_IsIntersected(newBallState, bumperLine2)){
-			
+			adjustForBumperTop_IsIntersected(newBallState, bumperLine4)
+		){
+			isIntersected = true;
+		}
+	}
+	if(player === 3){
+		if(adjustForBumperRight_IsIntersected(newBallState, bumperLine3)){
+			isIntersected = true;
+		}else if(
+			adjustForBumperBottom_IsIntersected(newBallState, bumperLine2) ||
+			adjustForBumperLeft_IsIntersected(newBallState, bumperLine1) ||
+			adjustForBumperTop_IsIntersected(newBallState, bumperLine4)
+		){
+			isIntersected = true;
+		}
+	}
+	if(player === 4){
+		if(adjustForBumperTop_IsIntersected(newBallState, bumperLine4)){
+			isIntersected = true;
+		}else if(
+			adjustForBumperBottom_IsIntersected(newBallState, bumperLine2) ||
+			adjustForBumperLeft_IsIntersected(newBallState, bumperLine1) ||
+			adjustForBumperRight_IsIntersected(newBallState, bumperLine3)
+		){
+			isIntersected = true;
 		}
 	}
 	
-	return isNearGoal;
+	return isIntersected;
+}
+
+function adjustForGoallineCollision_IsIntersected(newBallState, playerNumber){
+	const goalId = "goal"+playerNumber;
+	var goalLeft = getElementPropertyAsFloat(goalId, 'left');
+	var goalTop = getElementPropertyAsFloat(goalId, 'top');
+	
+	var goalWidth = getElementPropertyAsFloat(goalId, 'width');
+	var goalHeight = getElementPropertyAsFloat(goalId, 'height');
+	
+	var goalPoint1 = new Point(goalLeft, goalTop + goalHeight);
+	var goalPoint2 = new Point(goalLeft + goalWidth, goalTop + goalHeight);
+	var goalPoint3 = new Point(goalLeft + goalWidth, goalTop);
+	var goalPoint4 = new Point(goalLeft, goalTop);
+	
+	var lineBottom = new Line(goalPoint1, goalPoint2);
+	var lineRight = new Line(goalPoint2, goalPoint3);
+	var lineTop = new Line(goalPoint3, goalPoint4);
+	var lineLeft = new Line(goalPoint4, goalPoint1);
+	
+	//player 1
+	if(playerNumber === 1 && adjustForBumperBottom_IsIntersected(newBallState, lineBottom)){
+		return true;
+	}
+	//player 2
+	if(playerNumber === 2 && adjustForBumperRight_IsIntersected(newBallState, lineRight)){
+		return true;
+	}
+	//player 3
+	if(playerNumber === 3 && adjustForBumperLeft_IsIntersected(newBallState, lineLeft)){
+		return true;
+	}
+	//player 4
+	if(playerNumber === 4 && adjustForBumperTop_IsIntersected(newBallState, lineTop)){
+		return true;
+	}
+	return false;
 }
 
 function adjustForBumperLeft_IsIntersected(newBallState, bumperLine1){
@@ -631,6 +1409,109 @@ function adjustForBumperTop_IsIntersected(newBallState, bumperLine4){
 	return false;
 }
 
+function setRecalculateIfNearGoal(ball_position_xy){
+	//recalculate the intercept when deflection is near a goal line
+	if(isNearGoal1(ball_position_xy) && !isInGoal1(ball_position_xy)){
+		BOARD.player1.shouldRecalculateIntercept = true;
+	}
+	if(isNearGoal2(ball_position_xy) && !isInGoal2(ball_position_xy)){
+		BOARD.player2.shouldRecalculateIntercept = true;
+	}
+	if(isNearGoal3(ball_position_xy) && !isInGoal3(ball_position_xy)){
+		BOARD.player3.shouldRecalculateIntercept = true;
+	}
+	if(isNearGoal4(ball_position_xy) && !isInGoal4(ball_position_xy)){
+		BOARD.player4.shouldRecalculateIntercept = true;
+	}
+}
+
+function isNearGoal1(ball_position_xy){
+	return ball_position_xy.y - NEAR_GOAL_DISTANCE < GOAL_DEPTH;
+}
+function isInGoal1(ball_position_xy){
+	return ball_position_xy.y < GOAL_DEPTH;
+}
+function isNearGoal2(ball_position_xy){
+	return ball_position_xy.x - NEAR_GOAL_DISTANCE < GOAL_DEPTH;
+}
+function isInGoal2(ball_position_xy){
+	return ball_position_xy.x < GOAL_DEPTH;
+}
+function isNearGoal3(ball_position_xy){
+	return ball_position_xy.x + NEAR_GOAL_DISTANCE > BOARD_WIDTH - GOAL_DEPTH;
+}
+function isInGoal3(ball_position_xy){
+	return ball_position_xy.x > BOARD_WIDTH - GOAL_DEPTH;
+}
+function isNearGoal4(ball_position_xy){
+	return ball_position_xy.y + NEAR_GOAL_DISTANCE > BOARD_HEIGHT - GOAL_DEPTH;
+}
+function isInGoal4(ball_position_xy){
+	return ball_position_xy.y > BOARD_HEIGHT - GOAL_DEPTH;
+}
+
+function showIntercept(playerNumber){
+	document.getElementById('calculateBall' + playerNumber).style.display = "inline-block";
+	document.getElementById('predictBall' + playerNumber).style.display = "inline-block";
+}
+
+function generateInputsAndLabels(sample_size = 100){
+	// Generate random valid game states
+	const inputs = [];
+	const labels = [];
+	
+	var iterationsCompleted = 0;
+	while(iterationsCompleted < sample_size) {
+		
+		const ball_speed = (Math.random() * (MAX_BALL_SPEED - MIN_BALL_SPEED)) + MIN_BALL_SPEED;
+		const ball_xy = getRandomPosition();
+		
+		//generate random absolute ball state
+		const starting_ball_state = new BallState(ball_speed, getRandomAngle(), ball_xy.x, ball_xy.y);
+		
+		//calculate next collision
+		const next_collision_ball_state = calculateNextCollision(starting_ball_state);
+		
+		//only train on data if the correct output could be calculated
+		if(next_collision_ball_state !== undefined){
+			
+			//normalize inputs
+			const starting_ball_xy_normalized = normalizeBallPosition(starting_ball_state.position);
+			const starting_delta_xy = getDeltaXY(starting_ball_state.angle, starting_ball_state.speed);
+			const starting_ball_velocity_xy_normalized = normalizeBallVelocity(starting_delta_xy);
+			
+			//normalize labels
+			const next_collision_state_xy_normalized = normalizeBallPosition(next_collision_ball_state.position);
+			const next_collision_state_delta_xy = getDeltaXY(next_collision_ball_state.angle, next_collision_ball_state.speed);
+			const next_collision_state_velocity_xy_normalized = normalizeBallVelocity(next_collision_state_delta_xy);
+			
+			inputs.push([
+				starting_ball_xy_normalized.x,
+				starting_ball_xy_normalized.y,
+				starting_ball_velocity_xy_normalized.x,
+				starting_ball_velocity_xy_normalized.y
+			]);
+			
+			labels.push([
+				next_collision_state_xy_normalized.x,
+				next_collision_state_xy_normalized.y,
+				next_collision_state_velocity_xy_normalized.x,
+				next_collision_state_velocity_xy_normalized.y
+			]);
+			
+			iterationsCompleted++;
+		}
+		
+	}
+	
+	return [inputs, labels];
+}
+
+function updateStylesWithModelAdded(lastModified){
+	document.getElementById('assignPlayersPanel').classList.add('hasModel');
+	document.getElementById('localStorageModelTime').innerHTML = new Date(lastModified).toLocaleString();
+}
+
 // ============================================
 // UI Event Handlers
 // ============================================
@@ -638,15 +1519,24 @@ document.getElementById('trainModelBtn').addEventListener('click', async () => {
 	document.getElementById('trainModelBtn').firstElementChild.style.display = "inline-block";
 	document.getElementById('trainModelBtn').disabled = true;
 	document.getElementById('exportModelBtn').disabled = true;
-	document.getElementById('trainModelMessage').innerHTML = 'Training...';
+	document.getElementById('importModelBtn').disabled = true;
+	document.getElementById('analyzeModelBtn').disabled = true;
+	//document.getElementById('trainModelMessage').innerHTML = 'Training...';
+	document.getElementById('trainingGraphContainer').style.display = "inline-block";
+	plotTrainingLossGraph();
+	
+	//force UI changes before starting model training
+	await new Promise(requestAnimationFrame);
 	
 	await INTERCEPT_PREDICTOR.trainModel();
 	
-	document.getElementById('trainModelBtn').firstElementChild.style.display = "none";
+	document.getElementById('trainingGraphContainer').firstElementChild.style.display = "none";
 	document.getElementById('trainModelBtn').disabled = false;
 	document.getElementById('exportModelBtn').disabled = false;
 	document.getElementById('exportModelBtn').style.display = "inline-block";
-	document.getElementById('trainModelMessage').innerHTML = 'Model training is complete. Model will be used by AI players.';
+	document.getElementById('importModelBtn').disabled = false;
+	document.getElementById('analyzeModelBtn').disabled = false;
+	//document.getElementById('trainModelMessage').innerHTML = 'Model training is complete. Model will be used by AI players.';
 });
 
 document.getElementById('startGameBtn').addEventListener('click', async () => {
@@ -655,9 +1545,9 @@ document.getElementById('startGameBtn').addEventListener('click', async () => {
 		el.style.display = "none"
 	});
 	
-	await board.initGame();
+	await BOARD.initGame();
 	
-	for (const player of [board.player1, board.player2, board.player3, board.player4]) {
+	for (const player of [BOARD.player1, BOARD.player2, BOARD.player3, BOARD.player4]) {
 		if (player.intercept_predictor) {
 			//import saved model
 			const jsonFile = document.getElementById('upload-json').files[0];
@@ -666,647 +1556,35 @@ document.getElementById('startGameBtn').addEventListener('click', async () => {
 				const model = await tf.loadLayersModel(
 					tf.io.browserFiles([jsonFile, weightsFile])
 				);
-				player.intercept_predictor.loadModel(model);
+				player.intercept_predictor.setModel(model);
 			}
 		}
+	}
+});
+
+document.getElementById('importModelBtn').addEventListener('click', async () => {
+	const jsonFile = document.getElementById('upload-json').files[0];
+	const weightsFile = document.getElementById('upload-weights').files[0];
+	if(jsonFile && weightsFile){
+		await INTERCEPT_PREDICTOR.importModel(jsonFile, weightsFile);
 	}
 });
 
 document.getElementById('exportModelBtn').addEventListener('click', async () => {
-	for (const player of [board.player1, board.player2, board.player3, board.player4]) {
-		if (player.intercept_predictor) {
-			await player.intercept_predictor.saveModel('downloads://intercept-predictor-model');
-			break;
-		}
-	}
+	await INTERCEPT_PREDICTOR.downloadModel('downloads://intercept-predictor-model');
 });
 
-// ============================================
-// Player Creation
-// ============================================
-function createPlayer(playerNumber, speed = MIN_BALL_SPEED, isHuman = false, isAI = false){
-	var player = {
-		playerNumber: 0,
-		isHuman: false,
-		isAI: false,
-		score: 0,
-		slideSpeed: 0,
-		movingDirection: null,
-		intercept_predictor: null,
-		shouldRecalculateIntercept: false,
-		nextInterceptPosition: null,
-		framesToArrival: 0,
-		startSlide: function(direction){
-			var _self = this;
-			//console.log("startSlide(" + direction + ")");
-			_self.movingDirection = direction;
-		},
-		getBumperXCanonical: function(){
-			var _self = this;
-			
-			var bumperLateralPosition = 0;
-			
-			if(_self.playerNumber == 1 || _self.playerNumber == 4){
-			
-				//300-700
-				bumperLateralPosition = getElementPropertyAsFloat("bumper" + _self.playerNumber, 'left') + getElementPropertyAsFloat("bumper" + _self.playerNumber, 'width') / 2;
-				
-				if(_self.playerNumber == 1){
-					//700-300
-					bumperLateralPosition = BOARD_WIDTH - bumperLateralPosition;
-				}
-				
-			}else if(_self.playerNumber == 2 || _self.playerNumber == 3){
-				
-				//300-700
-				bumperLateralPosition = getElementPropertyAsFloat("bumper" + _self.playerNumber, 'top') + getElementPropertyAsFloat("bumper" + _self.playerNumber, 'height') / 2;
-				
-				if(_self.playerNumber == 3){
-					//700-300
-					bumperLateralPosition = BOARD_WIDTH - bumperLateralPosition;
-				}
-				
-			}
-			
-			return bumperLateralPosition;
-		},
-		getBallPositionCanonical: function(ballPosition){
-			const _self = this;
-			
-			var adjustedPosition = new Point(0, 0);
-			
-			if(_self.playerNumber == 4){
-				//0-1000, 0-1000
-				adjustedPosition = new Point(ballPosition.x, ballPosition.y);
-			}else if(_self.playerNumber == 1){
-				//1000-0, 1000-0
-				adjustedPosition = new Point(BOARD_WIDTH - ballPosition.x, BOARD_HEIGHT - ballPosition.y);
-			}else if(_self.playerNumber == 2){
-				//rotating counterclockwise
-				adjustedPosition = new Point(ballPosition.y, BOARD_WIDTH - ballPosition.x);
-			}else if(_self.playerNumber == 3){
-				//rotating clockwise
-				adjustedPosition = new Point(BOARD_HEIGHT - ballPosition.y, ballPosition.x);
-			}
-			
-			return adjustedPosition;
-		},
-		getBallVelocityCanonical: function(ballState){
-			const _self = this;
-			
-			var nextBallPosition = getNewPositionFromAngleAndSpeed(ballState.position, ballState.angle, ballState.speed);
-			
-			//player 4
-			var ball_velocity_x = nextBallPosition.x - ballState.position.x;
-			var ball_velocity_y = nextBallPosition.y - ballState.position.y;
-			
-			if(_self.playerNumber == 1){
-				//inverted
-				var ballVelocityXRotated = (-1) * ball_velocity_x;
-				var ballVelocityYRotated = (-1) * ball_velocity_y;
-				ball_velocity_x = ballVelocityXRotated;
-				ball_velocity_y = ballVelocityYRotated;
-			}else if(_self.playerNumber == 2){
-				//rotating counterclockwise
-				var ballVelocityXRotated = ball_velocity_y;
-				var ballVelocityYRotated = (-1) * ball_velocity_x;
-				ball_velocity_x = ballVelocityXRotated;
-				ball_velocity_y = ballVelocityYRotated;
-			}else if(_self.playerNumber == 3){
-				//rotating clockwise
-				var ballVelocityXRotated = (-1) * ball_velocity_y;
-				var ballVelocityYRotated = ball_velocity_x;
-				ball_velocity_x = ballVelocityXRotated;
-				ball_velocity_y = ballVelocityYRotated;
-			}
-			
-			return new Point(ball_velocity_x, ball_velocity_y);
-		},
-		getBumperMoveTowardTarget: function(bumper_x_normalized, target_x_normalized){
-			//stay
-			var move = 1;
-			if(target_x_normalized + BALL_RADIUS_NORMALIZED < bumper_x_normalized){
-				//left
-				move = 0;
-			}else if(target_x_normalized - BALL_RADIUS_NORMALIZED > bumper_x_normalized){
-				//right
-				move = 2;
-			}
-			
-			return move;
-		},
-		getMoveFromAI: function(bumper_x_normalized, ball_x_normalized, ball_y_normalized, ball_velocity_x_normalized, ball_velocity_y_normalized){
-			var _self = this;
-			
-			const state = [ball_x_normalized, ball_y_normalized, ball_velocity_x_normalized, ball_velocity_y_normalized];
-			const x_pred = _self.intercept_predictor.predictX(state);
-			
-			// Return action: 0=left, 1=stay, 2=right
-			return getBumperMoveTowardTarget(bumper_x_normalized, x_pred);
-		},
-		iterateSlide: async function(){
-			var _self = this;
-			
-			if(!_self.isHuman){
-				
-				const bumper_x_normalized = normalizeBumperX(_self.getBumperXCanonical());
-				const ball_xy_normalized = normalizeBallPosition(_self.getBallPositionCanonical(board.ball.ballState.position));
-				const ball_velocity_xy_normalized = normalizeBallVelocity(_self.getBallVelocityCanonical(board.ball.ballState));
-				
-				var move = 1;
-				
-				if(_self.isAI){
-					
-					//neural network
-					move = _self.getMoveFromAI(bumper_x_normalized, ball_xy_normalized.x, ball_xy_normalized.y, ball_velocity_xy_normalized.x, ball_velocity_xy_normalized.y);
-					
-				}else if(!_self.isHuman){
-					
-					//hardcoded CPU
-					move = _self.getBumperMoveTowardTarget(bumper_x_normalized, ball_xy_normalized.x);
-					
-				}
-				
-				//move: 0=left, 1=stay, 2=right
-				if(move == 0){
-					_self.startSlide(DIRECTIONS.LEFT);
-				}else if(move == 2){
-					_self.startSlide(DIRECTIONS.RIGHT);
-				}else{
-					_self.stopSlide();
-				}
-			}
-			
-			const nearCornerOffset = getElementPropertyAsFloat('cornerSquare3', 'width');
-			const farCornerOffset = nearCornerOffset + getElementPropertyAsFloat('goal4', 'width') - getElementPropertyAsFloat('bumper4', 'width');
-			
-			var bumperElement = document.getElementById("bumper" + _self.playerNumber);
-			var bumperStyles = window.getComputedStyle(bumperElement,null);
-			
-			if(_self.movingDirection == DIRECTIONS.LEFT){
-				
-				if(_self.playerNumber == 4){
-					//left
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
-					var newPosition = currentPosition - _self.slideSpeed;
-					if(newPosition <= nearCornerOffset){
-						newPosition = nearCornerOffset;
-					}
-					bumperElement.style.left = newPosition + "px";
-				}else if(_self.playerNumber == 1){
-					//right
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
-					var newPosition = currentPosition + _self.slideSpeed;
-					if(newPosition >= farCornerOffset){
-						newPosition = farCornerOffset;
-					}
-					bumperElement.style.left = newPosition + "px";
-				}else if(_self.playerNumber == 2){
-					//up
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
-					var newPosition = currentPosition - _self.slideSpeed;
-					if(newPosition <= nearCornerOffset){
-						newPosition = nearCornerOffset;
-					}
-					bumperElement.style.top = newPosition + "px";
-				}else if(_self.playerNumber == 3){
-					//down
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
-					var newPosition = currentPosition + _self.slideSpeed;
-					if(newPosition >= farCornerOffset){
-						newPosition = farCornerOffset;
-					}
-					bumperElement.style.top = newPosition + "px";
-				}
-				
-			}else if(_self.movingDirection == DIRECTIONS.RIGHT){
-				
-				if(_self.playerNumber == 4){
-					//right
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
-					var newPosition = currentPosition + _self.slideSpeed;
-					if(newPosition >= farCornerOffset){
-						newPosition = farCornerOffset;
-					}
-					bumperElement.style.left = newPosition + "px";
-				}else if(_self.playerNumber == 1){
-					//left
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("left"));
-					var newPosition = currentPosition - _self.slideSpeed;
-					if(newPosition <= nearCornerOffset){
-						newPosition = nearCornerOffset;
-					}
-					bumperElement.style.left = newPosition + "px";
-				}else if(_self.playerNumber == 2){
-					//down
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
-					var newPosition = currentPosition + _self.slideSpeed;
-					if(newPosition >= farCornerOffset){
-						newPosition = farCornerOffset;
-					}
-					bumperElement.style.top = newPosition + "px";
-				}else if(_self.playerNumber == 3){
-					//up
-					var currentPosition = parseFloat(bumperStyles.getPropertyValue("top"));
-					var newPosition = currentPosition - _self.slideSpeed;
-					if(newPosition <= nearCornerOffset){
-						newPosition = nearCornerOffset;
-					}
-					bumperElement.style.top = newPosition + "px";
-				}
-				
-			}
-			
-		},
-		stopSlide: function(){
-			var _self = this;
-			_self.movingDirection = null;
-		},
-		processScore: function(){
-			var _self = this;
-			
-			var bumperLabelElement = document.getElementById("bumper" + _self.playerNumber).getElementsByClassName("bumperLabel")[0];
-			
-			var goalElement = document.getElementById("goal" + _self.playerNumber);
-			goalElement.classList.add("goalHighlight");
-			setTimeout(function(){
-				goalElement.classList.remove("goalHighlight");
-			}, 300);
-			
-			_self.score++;
-			bumperLabelElement.textContent = _self.score;
-			
-			const resetTime = getUnixSeconds();
-			if(_self.playerNumber != board.isGoalLineCrossed){
-				//verify the ball goes out of bounds shortly after crossing the goal line
-				console.log(board.isGoalLineCrossed, _self.playerNumber);
-			}
-			board.isGoalLineCrossed = null;
-			
-			board.ball.resetBall();
-		},
-		drawNextIntercept: function(){
-			const _self = this;
-			
-			var nextInterceptPosition = predictBallIntercept(_self.playerNumber, board.ball.ballState);
-			const predictBallElement = document.getElementById("predictBall" + _self.playerNumber);
-			predictBallElement.style.left = (nextInterceptPosition.x - BALL_RADIUS) + "px";
-			predictBallElement.style.top = (nextInterceptPosition.y - BALL_RADIUS) + "px";
-			
-			_self.nextInterceptPosition = nextInterceptPosition;
-		}
-	};
-	
-	player.playerNumber = playerNumber;
-	player.slideSpeed = speed;
-	player.isHuman = isHuman;
-	player.isAI = isAI;
-	
-	// Initialize model for AI players
-	if (player.isAI) {
-		player.intercept_predictor = INTERCEPT_PREDICTOR;
+document.getElementById('modelExpandBtn').addEventListener('click', async () => {
+	if(document.getElementById('modelExpandBtn').innerHTML === '-'){
+		document.getElementById('modelFilesImportContainer').style.display = "none";
+		document.getElementById('trainAnalyzeSection').style.display = "none";
+		document.getElementById('modelExpandBtn').innerHTML = "+";
+	}else{
+		document.getElementById('modelFilesImportContainer').style.display = "inline-block";
+		document.getElementById('trainAnalyzeSection').style.display = "inline-block";
+		document.getElementById('modelExpandBtn').innerHTML = "-";
 	}
-	
-	if(isHuman){
-		
-		document.addEventListener('keydown', function(event) {
-			if (event.repeat) { return; }
-			
-			if(event.keyCode == 37) {
-				player.startSlide(DIRECTIONS.LEFT);
-			} else if(event.keyCode == 39) {
-				player.startSlide(DIRECTIONS.RIGHT);
-			}
-		});
-		
-		document.addEventListener('keyup', function(event) {
-			if (event.repeat) { return; }
-			
-			switch (event.keyCode){
-				case 37:
-				case 39:
-					player.stopSlide();
-					break;
-				default:
-					return;
-			}
-		});
-		
-	}
-	
-	return player;
-}
-
-var ball = {
-	ballState: {
-		speed: 0,
-		angle: 0,
-		/*spin:{
-			clockwise: true,
-			speed: 10
-		},*/
-		//position of the center of the ball
-		position: null
-	},
-	ballElement: null,
-	getBallElement: function(){
-		if(this.ballElement == null){
-			this.ballElement = document.getElementById("ball");
-		}
-		return this.ballElement;
-	},
-	increaseSpeed: function(increment = 5){
-		var _self = this;
-		_self.ballState.speed += increment;
-	},
-	resetBall: function(){
-		var _self = this;
-		
-		//initialize new ball
-		_self.ballState.speed = MIN_BALL_SPEED;
-		
-		_self.ballState.angle = getRandomAngle();
-		
-		var randomX = (BOARD_WIDTH / 2) - (BOARD_WIDTH / 8) + getRandomNumber(0, BOARD_WIDTH/4);
-		var randomY = (BOARD_HEIGHT / 2) - (BOARD_HEIGHT / 8) + getRandomNumber(0, BOARD_HEIGHT/4);
-		_self.ballState.position = new Point(randomX, randomY);
-		
-		board.player1.drawNextIntercept();
-		board.player2.drawNextIntercept();
-		board.player3.drawNextIntercept();
-		board.player4.drawNextIntercept();
-		
-	},
-	setRecalculateIfNearGoal: function(isNearGoalArray){
-		if(isNearGoalArray[0]){
-			board.player1.shouldRecalculateIntercept = true;
-		}
-		if(isNearGoalArray[1]){
-			board.player2.shouldRecalculateIntercept = true;
-		}
-		if(isNearGoalArray[2]){
-			board.player3.shouldRecalculateIntercept = true;
-		}
-		if(isNearGoalArray[3]){
-			board.player4.shouldRecalculateIntercept = true;
-		}
-	},
-	updateBallState: function(){
-		var _self = this;
-		
-		var currentPosition = new Point(_self.ballState.position.x, _self.ballState.position.y);
-		
-		const topBoundary = 0;
-		const bottomBoundary = getElementPropertyAsFloat('board', 'height');
-		const leftBoundary = 0;
-		const rightBoundary = getElementPropertyAsFloat('board', 'width');
-		
-		var newBallState = {
-			speed: _self.ballState.speed,
-			angle: _self.ballState.angle,
-			position: currentPosition
-		};
-		
-		//to prevent clipping through edges at higher speeds, divide the distance to move into steps that are smaller than the collision radius and check for collisions at each step before finalizing the new ball position
-		var numberOfLoops = parseInt(_self.ballState.speed / (BALL_RADIUS - 1)) + 1;
-		for(var x=0; x<numberOfLoops; x++){
-			
-			var stepSpeed = _self.ballState.speed / numberOfLoops;
-			
-			//calculate new position before checking for boundary intersections
-			var newPosition = getNewPositionFromAngleAndSpeed(newBallState.position, _self.ballState.angle, stepSpeed);
-			
-			newBallState.position = newPosition;
-			
-			//recalculate new position based on boundary intersections
-			
-			//check for goal line crossing
-			if(board.isGoalLineCrossed == null){
-				if(newBallState.position.y < topBoundary + GOAL_DEPTH - BALL_RADIUS){
-					board.isGoalLineCrossed = 1;
-				}else if(newBallState.position.x < leftBoundary + GOAL_DEPTH - BALL_RADIUS){
-					board.isGoalLineCrossed = 2;
-				}else if(newBallState.position.x > rightBoundary - GOAL_DEPTH + BALL_RADIUS){
-					board.isGoalLineCrossed = 3;
-				}else if(newBallState.position.y > bottomBoundary - GOAL_DEPTH + BALL_RADIUS){
-					board.isGoalLineCrossed = 4;
-				}
-			}
-			
-			//check for score
-			if(newBallState.position.y < topBoundary - BALL_RADIUS){
-				board.player1.processScore();
-				return;
-			}else if(newBallState.position.x < leftBoundary - BALL_RADIUS){
-				board.player2.processScore();
-				return;
-			}else if(newBallState.position.x > rightBoundary + BALL_RADIUS){
-				board.player3.processScore();
-				return;
-			}else if(newBallState.position.y > bottomBoundary + BALL_RADIUS){
-				board.player4.processScore();
-				return;
-			}
-			
-			var lines = {
-				horizontalLine: null,
-				diagonalLine: null,
-				verticalLine: null
-			};
-			
-			var cornerSquareWidth = getElementPropertyAsFloat('cornerSquare1', 'width');
-			var cornerSquareHeight = cornerSquareWidth;
-			
-			//Square 1
-			var cornerSquare1Left = getElementPropertyAsFloat('cornerSquare1', 'left');
-			var cornerSquare1Top = getElementPropertyAsFloat('cornerSquare1', 'top');
-			
-			var cornerSquare1Point1 = new Point(cornerSquare1Left, cornerSquare1Top + cornerSquareHeight);
-			var cornerSquare1Point2 = new Point(cornerSquare1Left + (cornerSquareWidth / 2), cornerSquare1Top + cornerSquareHeight);
-			var cornerSquare1Point3 = new Point(cornerSquare1Left + cornerSquareWidth, cornerSquare1Top + (cornerSquareHeight / 2));
-			var cornerSquare1Point4 = new Point(cornerSquare1Left + cornerSquareWidth, cornerSquare1Top);
-			
-			lines = {
-				horizontalLine: new Line(cornerSquare1Point1, cornerSquare1Point2),
-				diagonalLine: new Line(cornerSquare1Point2, cornerSquare1Point3),
-				verticalLine: new Line(cornerSquare1Point3, cornerSquare1Point4)
-			};
-			this.setRecalculateIfNearGoal(adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 1));
-			
-			//Square 2
-			var cornerSquare2Left = getElementPropertyAsFloat('cornerSquare2', 'left');
-			var cornerSquare2Top = getElementPropertyAsFloat('cornerSquare2', 'top');
-			
-			var cornerSquare2Point1 = new Point(cornerSquare2Left, cornerSquare2Top);
-			var cornerSquare2Point2 = new Point(cornerSquare2Left, cornerSquare2Top + (cornerSquareHeight / 2));
-			var cornerSquare2Point3 = new Point(cornerSquare2Left + (cornerSquareWidth / 2), cornerSquare2Top + cornerSquareHeight);
-			var cornerSquare2Point4 = new Point(cornerSquare2Left + cornerSquareWidth, cornerSquare2Top + cornerSquareHeight);
-			
-			lines = {
-				horizontalLine: new Line(cornerSquare2Point3, cornerSquare2Point4),
-				diagonalLine: new Line(cornerSquare2Point2, cornerSquare2Point3),
-				verticalLine: new Line(cornerSquare2Point1, cornerSquare2Point2)
-			};
-			this.setRecalculateIfNearGoal(adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 2));
-			
-			//Square 3
-			var cornerSquare3Left = getElementPropertyAsFloat('cornerSquare3', 'left');
-			var cornerSquare3Top = getElementPropertyAsFloat('cornerSquare3', 'top');
-			
-			var cornerSquare3Point1 = new Point(cornerSquare3Left, cornerSquare3Top);
-			var cornerSquare3Point2 = new Point(cornerSquare3Left + (cornerSquareWidth / 2), cornerSquare3Top);
-			var cornerSquare3Point3 = new Point(cornerSquare3Left + cornerSquareWidth, cornerSquare3Top + (cornerSquareHeight / 2));
-			var cornerSquare3Point4 = new Point(cornerSquare3Left + cornerSquareWidth, cornerSquare3Top + cornerSquareHeight);
-			
-			lines = {
-				horizontalLine: new Line(cornerSquare3Point1, cornerSquare3Point2),
-				diagonalLine: new Line(cornerSquare3Point2, cornerSquare3Point3),
-				verticalLine: new Line(cornerSquare3Point3, cornerSquare3Point4)
-			};
-			this.setRecalculateIfNearGoal(adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 3));
-			
-			//Square 4
-			var cornerSquare4Left = getElementPropertyAsFloat('cornerSquare4', 'left');
-			var cornerSquare4Top = getElementPropertyAsFloat('cornerSquare4', 'top');
-			
-			var cornerSquare4Point1 = new Point(cornerSquare4Left, cornerSquare4Top + cornerSquareHeight);
-			var cornerSquare4Point2 = new Point(cornerSquare4Left, cornerSquare4Top + (cornerSquareHeight / 2));
-			var cornerSquare4Point3 = new Point(cornerSquare4Left + (cornerSquareWidth / 2), cornerSquare4Top);
-			var cornerSquare4Point4 = new Point(cornerSquare4Left + cornerSquareWidth, cornerSquare4Top);
-			
-			lines = {
-				horizontalLine: new Line(cornerSquare4Point3, cornerSquare4Point4),
-				diagonalLine: new Line(cornerSquare4Point2, cornerSquare4Point3),
-				verticalLine: new Line(cornerSquare4Point1, cornerSquare4Point2)
-			};
-			this.setRecalculateIfNearGoal(adjustForCornerSquareCollision_IsNearGoal(newBallState, lines, 4));
-			
-			//Bumpers
-			this.setRecalculateIfNearGoal(adjustForBumperCollision_IsNearGoal(newBallState, 1));
-			
-			this.setRecalculateIfNearGoal(adjustForBumperCollision_IsNearGoal(newBallState, 2));
-			
-			this.setRecalculateIfNearGoal(adjustForBumperCollision_IsNearGoal(newBallState, 3));
-			
-			this.setRecalculateIfNearGoal(adjustForBumperCollision_IsNearGoal(newBallState, 4));
-			
-			//update ball state with new values
-			_self.ballState = newBallState;
-		}
-	},
-	drawBall: function(){
-		var _self = this;
-		
-		var ballElement = _self.getBallElement();
-		ballElement.style.left = (_self.ballState.position.x - BALL_RADIUS) + "px";
-		ballElement.style.top = (_self.ballState.position.y - BALL_RADIUS) + "px";
-		//ballElement.style.transform = newSpin?
-		
-		var statsElement = document.getElementById("ballStats");
-		statsElement.textContent = "x:" + parseInt(_self.ballState.position.x) + " y:" + parseInt(_self.ballState.position.y) + " θ:" + _self.ballState.angle + "°";
-	}
-};
-
-var board = {
-	player1: null,
-	player2: null,
-	player3: null,
-	player4: null,
-	ball: ball,
-	isStarted: false,
-	gameLoop: null,
-	initGame: async function(){
-		var _self = this;
-		
-		document.querySelectorAll(".switch-toggle input:checked").forEach(el => {
-			
-			var elementId = el.id;
-			var selection_playerNumber = elementId.split("_");
-			var selection = selection_playerNumber[0];
-			var playerNumber = selection_playerNumber[1];
-			
-			var isHuman = selection === 'p';
-			var isAi = selection === 'ai';
-			
-			if(playerNumber === '1'){
-				
-				_self.player1 = createPlayer(1, 25, isHuman, isAi);
-				
-			}else if(playerNumber === '2'){
-			
-				_self.player2 = createPlayer(2, 25, isHuman, isAi);
-				
-			}else if(playerNumber === '3'){
-				
-				_self.player3 = createPlayer(3, 25, isHuman, isAi);
-				
-			}else if(playerNumber === '4'){
-			
-				_self.player4 = createPlayer(4, 25, isHuman, isAi);
-				
-			}
-			
-			document.querySelector('#bumper' + playerNumber + ' .playerLabel').innerHTML = elementId.toUpperCase();
-			
-		});
-		
-		_self.ball.resetBall();
-		
-		await _self.startGame();
-	},
-	startGame: async function(){
-		var _self = this;
-		
-		_self.gameLoop = setInterval(async function(){
-			
-			await _self.player1.iterateSlide();
-			await _self.player2.iterateSlide();
-			await _self.player3.iterateSlide();
-			await _self.player4.iterateSlide();
-			
-			//for each iteration, update the ball state based on position, angle and speed
-			_self.ball.updateBallState();
-			
-			_self.recalculateIntercepts();
-			
-			//then redraw the ball based on the new ball state
-			_self.ball.drawBall();
-			
-		}, INTERVAL_DURATION_MS);
-		
-		_self.isStarted = true;
-	},
-	stopGame: function(){
-		var _self = this;
-		clearInterval(_self.gameLoop);
-		_self.isStarted = false;
-	},
-	recalculateIntercepts: function(){
-		var _self = this;
-		
-		if(_self.player1.shouldRecalculateIntercept){
-			_self.player1.drawNextIntercept();
-			_self.player1.shouldRecalculateIntercept = false;
-		}
-		
-		if(_self.player2.shouldRecalculateIntercept){
-			_self.player2.drawNextIntercept();
-			_self.player2.shouldRecalculateIntercept = false;
-		}
-		
-		if(_self.player3.shouldRecalculateIntercept){
-			_self.player3.drawNextIntercept();
-			_self.player3.shouldRecalculateIntercept = false;
-		}
-		
-		if(_self.player4.shouldRecalculateIntercept){
-			_self.player4.drawNextIntercept();
-			_self.player4.shouldRecalculateIntercept = false;
-		}
-		
-	},
-	isGoalLineCrossed: null
-};
+});
 
 document.addEventListener('keyup', async function(event) {
 	if (event.repeat) { return; }
@@ -1314,14 +1592,22 @@ document.addEventListener('keyup', async function(event) {
 	switch (event.keyCode){
 		case 32:
 			//spacebar
-			if(board.isStarted){
-				board.stopGame();
+			if(BOARD.isStarted){
+				BOARD.stopGame();
 			}else{
-				await board.startGame();
+				await BOARD.startGame();
+			}
+		case 27:
+			//escape
+			if(BOARD.isStarted){
+				BOARD.stopGame();
+				document.getElementById('titleScreenContainer').style.display = "inline-block";
+			}else if(BOARD.player1){
+				//continue existing game
+				document.getElementById('titleScreenContainer').style.display = "none";
+				await BOARD.startGame();
 			}
 		default:
 			return;
 	}
 });
-
-//await board.player4.intercept_predictor.saveModel('localstorage://intercept-predictor-model');
