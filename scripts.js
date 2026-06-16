@@ -1697,6 +1697,7 @@ document.addEventListener('keyup', async function(event) {
 			}else{
 				await BOARD.startGame();
 			}
+			break;
 		case 27:
 			//escape
 			if(BOARD.isStarted){
@@ -1707,6 +1708,7 @@ document.addEventListener('keyup', async function(event) {
 				document.getElementById('titleScreenContainer').style.display = "none";
 				await BOARD.startGame();
 			}
+			break;
 		default:
 			return;
 	}
