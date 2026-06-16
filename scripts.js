@@ -16,7 +16,6 @@ const DIRECTIONS = {
 	LEFT: "left"
 };
 const LOCAL_STORAGE_PATH = 'localstorage://intercept-predictor-model';
-const EXPORTED_MODEL_PATH = './model/intercept-predictor-model.json';
 
 class Point {
 	constructor(x, y){
@@ -657,53 +656,52 @@ class InterceptPredictor {
 	
 	#model = null;
 	
-	#createModel() {
+	#createModel(hiddenLayerCount, layerUnitCount, learningRate) {
 		const model = tf.sequential();
 		
 		model.add(tf.layers.dense({
-			units: 128,
+			units: layerUnitCount,
 			activation: 'relu',
 			inputShape: [4] // ball_x_normalized, ball_y_normalized, ball_velocity_x_normalized, ball_velocity_y_normalized
 		}));
-		model.add(tf.layers.dense({
-			units: 128,
-			activation: 'relu'
-		}));
-		model.add(tf.layers.dense({
-			units: 128,
-			activation: 'relu'
-		}));
+		
+		for(var x=0; x<hiddenLayerCount-1;x++){
+			model.add(tf.layers.dense({
+				units: layerUnitCount,
+				activation: 'relu'
+			}));
+		}
+		
 		model.add(tf.layers.dense({
 			units: 4, // ball_x_normalized', ball_y_normalized', ball_velocity_x_normalized', ball_velocity_y_normalized'
 			activation: 'linear'
 		}));
 		
-		this.#compileModel(model);
+		this.#compileModel(model, learningRate);
 		
 		return model;
 	}
 	
-	#compileModel(model){
+	#compileModel(model, learningRate = 0.0003){
 		
 		model.compile({
-			optimizer: tf.train.adam(0.0003),
+			optimizer: tf.train.adam(learningRate),
 			loss: 'meanSquaredError'
 		});
 		
 	}
 	
-	async trainModel(){
+	async trainModel(hiddenLayerCount, layerUnitCount, learningRate, iterationCount){
 		
-		this.#model = this.#createModel();
+		this.#model = this.#createModel(hiddenLayerCount, layerUnitCount, learningRate, iterationCount);
 		
-		let epochs = 25000;
 		let batchSize = 256;
 		
 		const validation = generateInputsAndLabels(5000);
 		const validationXs = tf.tensor2d(validation[0]);
 		const validationYs = tf.tensor2d(validation[1]);
 		
-		for (let epoch = 0; epoch < epochs; epoch++) {
+		for (let iteration = 0; iteration < iterationCount; iteration++) {
 			
 			// Generate random valid game states
 			const inputs_labels = generateInputsAndLabels(batchSize);
@@ -717,11 +715,11 @@ class InterceptPredictor {
 			xs.dispose();
 			ys.dispose();
 			
-			if (epoch % 50 === 0){
+			if (iteration % 50 === 0){
 				var training_loss = result.history.loss[0];
 				var validation_loss = this.evaluateModel(validationXs, validationYs);
-				console.log(`Epoch ${epoch}: train=${training_loss.toFixed(6)} val=${validation_loss.toFixed(6)}`);
-				extendTracesForTrainingLossGraph(epoch, training_loss, validation_loss);
+				console.log(`Iteration ${iteration}: train=${training_loss.toFixed(6)} val=${validation_loss.toFixed(6)}`);
+				extendTracesForTrainingLossGraph(iteration, training_loss, validation_loss);
 			}
 		}
 		
@@ -806,7 +804,12 @@ const INTERCEPT_PREDICTOR = new InterceptPredictor();
 		//otherwise default to embedded model
 		const model = await loadEmbeddedModel();
 		await INTERCEPT_PREDICTOR.setModel(model);
-		updateStylesWithModelAdded('2026-06-16T00:26:39.104Z');
+		await INTERCEPT_PREDICTOR.saveModelToLocalStorage();
+		const models_2 = await tf.io.listModels();
+		if(models_2[LOCAL_STORAGE_PATH]){
+			const storage_timestamp = models_2[LOCAL_STORAGE_PATH].dateSaved;
+			updateStylesWithModelAdded(storage_timestamp);
+		}
 	}
 })();
 
@@ -1556,10 +1559,47 @@ function updateStylesWithModelAdded(lastModified){
 	document.getElementById('ai_4').disabled = false;
 }
 
+function updateStylesWithModelRemoved(){
+	document.getElementById('assignPlayersPanel').classList.remove('hasModel');
+	document.getElementById('localStorageModelTime').innerHTML = '';
+	
+	document.getElementById('ai_1').disabled = true;
+	document.getElementById('ai_2').disabled = true;
+	document.getElementById('ai_3').disabled = true;
+	document.getElementById('ai_4').disabled = true;
+}
+
 // ============================================
 // UI Event Handlers
 // ============================================
+function validateModelConfigurationFields(hiddenLayerCount, layerUnitCount, learningRate, iterationCount){
+	var isValid = true;
+	if(Number.isNaN(hiddenLayerCount) || hiddenLayerCount < 1){
+		isValid = false;
+	}
+	if(Number.isNaN(layerUnitCount) || layerUnitCount < 8){
+		isValid = false;
+	}
+	if(Number.isNaN(learningRate) || learningRate <= 0){
+		isValid = false;
+	}
+	if(Number.isNaN(iterationCount) || iterationCount < 1){
+		isValid = false;
+	}
+	return isValid;
+}
+
 document.getElementById('trainModelBtn').addEventListener('click', async () => {
+	
+	const hiddenLayerCount = document.getElementById('hiddenLayerCount').valueAsNumber;
+	const layerUnitCount = parseInt(document.getElementById('layerUnitCount').value);
+	const learningRate = document.getElementById('learningRate').valueAsNumber;
+	const iterationCount = document.getElementById('iterationCount').valueAsNumber;
+	
+	if(!validateModelConfigurationFields(hiddenLayerCount, layerUnitCount, learningRate, iterationCount)){
+		return;
+	}
+	
 	document.getElementById('trainModelBtn').firstElementChild.style.display = "inline-block";
 	document.getElementById('trainModelBtn').disabled = true;
 	document.getElementById('exportModelBtn').disabled = true;
@@ -1571,7 +1611,7 @@ document.getElementById('trainModelBtn').addEventListener('click', async () => {
 	//force UI changes before starting model training
 	await new Promise(requestAnimationFrame);
 	
-	await INTERCEPT_PREDICTOR.trainModel();
+	await INTERCEPT_PREDICTOR.trainModel(hiddenLayerCount, layerUnitCount, learningRate, iterationCount);
 	
 	document.getElementById('trainModelBtn').firstElementChild.style.display = "none";
 	document.getElementById('trainModelBtn').disabled = false;
@@ -1627,6 +1667,11 @@ document.getElementById('importModelBtn').addEventListener('click', async () => 
 
 document.getElementById('exportModelBtn').addEventListener('click', async () => {
 	await INTERCEPT_PREDICTOR.downloadModel('downloads://intercept-predictor-model');
+});
+
+document.getElementById('deleteModelBtn').addEventListener('click', async () => {
+	await INTERCEPT_PREDICTOR.deleteModelFromLocalStorage();
+	updateStylesWithModelRemoved();
 });
 
 document.getElementById('modelExpandBtn').addEventListener('click', async () => {

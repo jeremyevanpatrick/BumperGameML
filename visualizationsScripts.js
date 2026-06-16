@@ -42,7 +42,7 @@ function plotTrainingLossGraph(labels, predictions, plotName, range){
 		width: 350,
 		height: 250,
 		xaxis: {
-			title: 'Epoch',
+			title: 'Iteration',
 			rangemode: 'tozero'
 		},
 		yaxis: {
@@ -54,11 +54,11 @@ function plotTrainingLossGraph(labels, predictions, plotName, range){
 	Plotly.newPlot('trainingLossGraph', traces, layout);
 }
 
-function extendTracesForTrainingLossGraph(epoch, training_loss, validation_loss){
+function extendTracesForTrainingLossGraph(iteration, training_loss, validation_loss){
 	Plotly.extendTraces(
 		'trainingLossGraph',
 		{
-			x: [[epoch], [epoch]],
+			x: [[iteration], [iteration]],
 			y: [[training_loss], [validation_loss]]
 		},
 		[0, 1]

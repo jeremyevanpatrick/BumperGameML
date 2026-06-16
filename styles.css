@@ -1,5 +1,9 @@
 
 html {
+  font-size: 16px;
+}
+
+/*html {
   font-size: 5px;
 }
 
@@ -31,7 +35,7 @@ html {
   html {
     font-size: 16px;
   }
-}
+}*/
 
 body{
 	margin: 0 auto;
@@ -361,6 +365,26 @@ body{
 	cursor: not-allowed;
 }
 
+#deleteModelBtn{
+	background: #af4c4c;
+    width: auto;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    font-size: 1rem;
+    cursor: pointer;
+    color: white;
+    border: none;
+    border-radius: 0.25rem;
+	line-height: 1.125rem;
+	display:none;
+}
+.hasModel #deleteModelBtn{
+	display:inline-block;
+}
+#deleteModelBtn:hover{
+	background: #a04545;
+}
+
 /* Button spinner */
 .spinner {
 	float: left;
@@ -507,6 +531,23 @@ body{
 }
 .hasModel #analyzeModelBtn{
 	display:inline-block;
+}
+#modelConfigurationContainer{
+	display:inline-block;
+	float:left;
+	width:100%;
+}
+#modelConfigurationContainer .modelConfigurationLine input,
+#modelConfigurationContainer .modelConfigurationLine select{
+	text-align:right;
+	display:inline-block;
+	float:right;
+	width:80px;
+}
+.modelConfigurationLine{
+	display:inline-block;
+	float:left;
+	width:15rem;
 }
 #trainingGraphContainer{
 	display:none;
