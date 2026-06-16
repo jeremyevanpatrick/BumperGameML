@@ -168,6 +168,15 @@ body{
 #calculateBall4{
 	background-color:#ff000080;
 }
+#predictBall1{
+	background-color:#00003380;
+}
+#predictBall2{
+	background-color:#22110080;
+}
+#predictBall3{
+	background-color:#00330080;
+}
 #predictBall4{
 	background-color:#33000080;
 }
@@ -365,10 +374,6 @@ body{
     animation: rotation 1s linear infinite;
 }
 
-button:disabled .spinner {
-	display: inline-block;
-}
-
 @keyframes rotation {
 	0% { transform: rotate(0deg); }
 	100% { transform: rotate(360deg); }
@@ -489,13 +494,13 @@ button:disabled .spinner {
 	display:inline-block;
 	float:left;
 }
-#modelMenuSeparator{
-	text-align:center;
-}
 #trainAnalyzeSection{
 	display:none;
 	float:left;
 	width:100%;
+}
+#trainModelMessage{
+	margin-top:0.25rem;
 }
 #analyzeModelBtn{
 	display:none;
@@ -507,6 +512,12 @@ button:disabled .spinner {
 	display:none;
 	float:left;
 	width:100%;
+}
+#trainingGraphContainer h2{
+	margin-bottom:0px;
+}
+#trainingLossGraph{
+	height: 250px;
 }
 
 

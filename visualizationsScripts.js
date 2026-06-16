@@ -27,7 +27,7 @@ function plotTrainingLossGraph(labels, predictions, plotName, range){
 			x: [],
 			y: [],
 			mode: 'lines',
-			name: 'Train Loss'
+			name: 'Training Loss'
 		},
 		{
 			x: [],
@@ -39,20 +39,15 @@ function plotTrainingLossGraph(labels, predictions, plotName, range){
 	
 	const layout = {
 		title: 'Training Progress',
-		legend: {
-			orientation: 'h',
-			x: 0,
-			y: 1.15,
-			xanchor: 'left',
-			yanchor: 'bottom'
-		},
 		width: 350,
-		height: 350,
+		height: 250,
 		xaxis: {
-			title: 'Epoch'
+			title: 'Epoch',
+			rangemode: 'tozero'
 		},
 		yaxis: {
-			title: 'Loss'
+			title: 'Loss',
+			rangemode: 'tozero'
 		}
 	};
 

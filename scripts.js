@@ -16,7 +16,7 @@ const DIRECTIONS = {
 	LEFT: "left"
 };
 const LOCAL_STORAGE_PATH = 'localstorage://intercept-predictor-model';
-const LOCAL_STORAGE_TIMESTAMP_PATH = LOCAL_STORAGE_PATH + 'timestamp';
+const EXPORTED_MODEL_PATH = './model/intercept-predictor-model.json';
 
 class Point {
 	constructor(x, y){
@@ -128,18 +128,22 @@ class Board {
 			if(playerNumber === '1'){
 				
 				_self.player1 = new Player(1, 25, isHuman, isAi);
+				document.getElementById("bumper" + playerNumber).getElementsByClassName("bumperLabel")[0].textContent = _self.player1.score;
 				
 			}else if(playerNumber === '2'){
 			
 				_self.player2 = new Player(2, 25, isHuman, isAi);
+				document.getElementById("bumper" + playerNumber).getElementsByClassName("bumperLabel")[0].textContent = _self.player2.score;
 				
 			}else if(playerNumber === '3'){
 				
 				_self.player3 = new Player(3, 25, isHuman, isAi);
+				document.getElementById("bumper" + playerNumber).getElementsByClassName("bumperLabel")[0].textContent = _self.player3.score;
 				
 			}else if(playerNumber === '4'){
 			
 				_self.player4 = new Player(4, 25, isHuman, isAi);
+				document.getElementById("bumper" + playerNumber).getElementsByClassName("bumperLabel")[0].textContent = _self.player4.score;
 				
 			}
 			
@@ -477,11 +481,7 @@ class Player {
 			//END Normalization Logic
 			
 			_self.ai_prediction = [ball_velocity_x, ball_velocity_y, predicted_intercept_xy];
-			
-			const predictBallElement = document.getElementById("predictBall" + _self.playerNumber);
-			predictBallElement.style.left = (predicted_intercept_xy.x - BALL_RADIUS) + "px";
-			predictBallElement.style.top = (predicted_intercept_xy.y - BALL_RADIUS) + "px";
-			
+			drawPredicted(predicted_intercept_xy, _self.playerNumber);
 		}
 		
 		return predicted_intercept_xy.x;
@@ -696,7 +696,7 @@ class InterceptPredictor {
 		
 		this.#model = this.#createModel();
 		
-		let epochs = 10000;
+		let epochs = 25000;
 		let batchSize = 256;
 		
 		const validation = generateInputsAndLabels(5000);
@@ -727,6 +727,11 @@ class InterceptPredictor {
 		
 		//automatically save result in local storage for persistence
 		await this.saveModelToLocalStorage();
+		const models = await tf.io.listModels();
+		if(models[LOCAL_STORAGE_PATH]){
+			const storage_timestamp = models[LOCAL_STORAGE_PATH].dateSaved;
+			updateStylesWithModelAdded(storage_timestamp);
+		}
 		
 	}
 	
@@ -749,9 +754,7 @@ class InterceptPredictor {
 	}
 	
 	async saveModelToLocalStorage(){
-		this.#model.save(LOCAL_STORAGE_PATH);
-		const storage_timestamp = new Date().toISOString();
-		localStorage.setItem(LOCAL_STORAGE_TIMESTAMP_PATH, storage_timestamp);
+		await this.#model.save(LOCAL_STORAGE_PATH);
 	}
 	
 	async downloadModel(path){
@@ -763,6 +766,10 @@ class InterceptPredictor {
 		const validation_loss = evaluation_tensor.dataSync()[0];
 		evaluation_tensor.dispose();
 		return validation_loss;
+	}
+	
+	async deleteModelFromLocalStorage(){
+		await tf.io.removeModel(LOCAL_STORAGE_PATH);
 	}
 	
 	predictNextState(input_state) {
@@ -793,9 +800,13 @@ const INTERCEPT_PREDICTOR = new InterceptPredictor();
 	const models = await tf.io.listModels();
 	if(models[LOCAL_STORAGE_PATH]){
 		await INTERCEPT_PREDICTOR.loadModel(LOCAL_STORAGE_PATH);
-		
-		const storage_timestamp = localStorage.getItem(LOCAL_STORAGE_TIMESTAMP_PATH);
+		const storage_timestamp = models[LOCAL_STORAGE_PATH].dateSaved;
 		updateStylesWithModelAdded(storage_timestamp);
+	}else{
+		//otherwise default to embedded model
+		const model = await loadEmbeddedModel();
+		await INTERCEPT_PREDICTOR.setModel(model);
+		updateStylesWithModelAdded('2026-06-16T00:26:39.104Z');
 	}
 })();
 
@@ -932,6 +943,34 @@ function getBumperXCanonical(playerNumber){
 	}
 	
 	return bumperLateralPosition;
+}
+
+function drawPredicted(canonical_intercept_xy, playerNumber){
+	const local_intercept_xy = getBallPositionLocal(canonical_intercept_xy, playerNumber);
+	
+	const predictBallElement = document.getElementById("predictBall" + playerNumber);
+	predictBallElement.style.left = (local_intercept_xy.x - BALL_RADIUS) + "px";
+	predictBallElement.style.top = (local_intercept_xy.y - BALL_RADIUS) + "px";
+}
+
+function getBallPositionLocal(canonical_position_xy, playerNumber){
+	var local_position = new Point(0, 0);
+	
+	if(playerNumber === 4){
+		//0-1000, 0-1000
+		local_position = new Point(canonical_position_xy.x, canonical_position_xy.y);
+	}else if(playerNumber === 1){
+		//1000-0, 1000-0
+		local_position = new Point(BOARD_WIDTH - canonical_position_xy.x, BOARD_HEIGHT - canonical_position_xy.y);
+	}else if(playerNumber === 3){
+		//rotating counterclockwise
+		local_position = new Point(canonical_position_xy.y, BOARD_WIDTH - canonical_position_xy.x);
+	}else if(playerNumber === 2){
+		//rotating clockwise
+		local_position = new Point(BOARD_HEIGHT - canonical_position_xy.y, canonical_position_xy.x);
+	}
+	
+	return local_position;
 }
 
 function isGoallineBounce(state){
@@ -1510,6 +1549,11 @@ function generateInputsAndLabels(sample_size = 100){
 function updateStylesWithModelAdded(lastModified){
 	document.getElementById('assignPlayersPanel').classList.add('hasModel');
 	document.getElementById('localStorageModelTime').innerHTML = new Date(lastModified).toLocaleString();
+	
+	document.getElementById('ai_1').disabled = false;
+	document.getElementById('ai_2').disabled = false;
+	document.getElementById('ai_3').disabled = false;
+	document.getElementById('ai_4').disabled = false;
 }
 
 // ============================================
@@ -1519,9 +1563,8 @@ document.getElementById('trainModelBtn').addEventListener('click', async () => {
 	document.getElementById('trainModelBtn').firstElementChild.style.display = "inline-block";
 	document.getElementById('trainModelBtn').disabled = true;
 	document.getElementById('exportModelBtn').disabled = true;
-	document.getElementById('importModelBtn').disabled = true;
 	document.getElementById('analyzeModelBtn').disabled = true;
-	//document.getElementById('trainModelMessage').innerHTML = 'Training...';
+	document.getElementById('trainModelMessage').innerHTML = 'Training...';
 	document.getElementById('trainingGraphContainer').style.display = "inline-block";
 	plotTrainingLossGraph();
 	
@@ -1530,13 +1573,12 @@ document.getElementById('trainModelBtn').addEventListener('click', async () => {
 	
 	await INTERCEPT_PREDICTOR.trainModel();
 	
-	document.getElementById('trainingGraphContainer').firstElementChild.style.display = "none";
+	document.getElementById('trainModelBtn').firstElementChild.style.display = "none";
 	document.getElementById('trainModelBtn').disabled = false;
 	document.getElementById('exportModelBtn').disabled = false;
 	document.getElementById('exportModelBtn').style.display = "inline-block";
-	document.getElementById('importModelBtn').disabled = false;
 	document.getElementById('analyzeModelBtn').disabled = false;
-	//document.getElementById('trainModelMessage').innerHTML = 'Model training is complete. Model will be used by AI players.';
+	document.getElementById('trainModelMessage').innerHTML = 'Model training is complete. Model will be used by AI players.';
 });
 
 document.getElementById('startGameBtn').addEventListener('click', async () => {
@@ -1546,20 +1588,21 @@ document.getElementById('startGameBtn').addEventListener('click', async () => {
 	});
 	
 	await BOARD.initGame();
-	
-	for (const player of [BOARD.player1, BOARD.player2, BOARD.player3, BOARD.player4]) {
-		if (player.intercept_predictor) {
-			//import saved model
-			const jsonFile = document.getElementById('upload-json').files[0];
-			const weightsFile = document.getElementById('upload-weights').files[0];
-			if(jsonFile && weightsFile){
-				const model = await tf.loadLayersModel(
-					tf.io.browserFiles([jsonFile, weightsFile])
-				);
-				player.intercept_predictor.setModel(model);
-			}
-		}
+});
+
+function checkImportFiles(){
+	if(document.getElementById('upload-json').files.length > 0 && document.getElementById('upload-weights').files.length > 0){
+		document.getElementById('importModelBtn').disabled = false;
+	}else{
+		document.getElementById('importModelBtn').disabled = true;
 	}
+}
+
+document.getElementById('upload-json').addEventListener('change', function(){
+	checkImportFiles();
+});
+document.getElementById('upload-weights').addEventListener('change', function(){
+	checkImportFiles();
 });
 
 document.getElementById('importModelBtn').addEventListener('click', async () => {
@@ -1567,6 +1610,18 @@ document.getElementById('importModelBtn').addEventListener('click', async () => 
 	const weightsFile = document.getElementById('upload-weights').files[0];
 	if(jsonFile && weightsFile){
 		await INTERCEPT_PREDICTOR.importModel(jsonFile, weightsFile);
+		
+		const models = await tf.io.listModels();
+		if(models[LOCAL_STORAGE_PATH]){
+			const storage_timestamp = models[LOCAL_STORAGE_PATH].dateSaved;
+			updateStylesWithModelAdded(storage_timestamp);
+		}
+		
+		document.getElementById('upload-json').value = '';
+		document.getElementById('upload-weights').value = '';
+		document.getElementById('upload-json').dispatchEvent(new Event('change', {
+			bubbles: true
+		}));
 	}
 });
 

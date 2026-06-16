@@ -55,7 +55,7 @@
 										<label for="p_1">P1</label>
 										<input id="cpu_1" name="pc_1" type="radio" checked="">
 										<label for="cpu_1">CPU</label>
-										<input id="ai_1" name="pc_1" type="radio">
+										<input id="ai_1" name="pc_1" type="radio" disabled="disabled">
 										<label for="ai_1">AI</label>
 									</div>
 								</td>
@@ -68,7 +68,7 @@
 										<label for="p_2">P2</label>
 										<input id="cpu_2" name="pc_2" type="radio" checked="">
 										<label for="cpu_2">CPU</label>
-										<input id="ai_2" name="pc_2" type="radio">
+										<input id="ai_2" name="pc_2" type="radio" disabled="disabled">
 										<label for="ai_2">AI</label>
 									</div>
 								</td>
@@ -81,7 +81,7 @@
 										<label for="p_3">P3</label>
 										<input id="cpu_3" name="pc_3" type="radio" checked="">
 										<label for="cpu_3">CPU</label>
-										<input id="ai_3" name="pc_3" type="radio">
+										<input id="ai_3" name="pc_3" type="radio" disabled="disabled">
 										<label for="ai_3">AI</label>
 									</div>
 								</td>
@@ -90,11 +90,11 @@
 								<td>Player 4</td>
 								<td>
 									<div class="switch-toggle switch-3 switch-candy">
-										<input id="p_4" name="pc_4" type="radio">
+										<input id="p_4" name="pc_4" type="radio" checked="">
 										<label for="p_4">P4</label>
 										<input id="cpu_4" name="pc_4" type="radio">
 										<label for="cpu_4">CPU</label>
-										<input id="ai_4" name="pc_4" type="radio" checked="">
+										<input id="ai_4" name="pc_4" type="radio" disabled="disabled">
 										<label for="ai_4">AI</label>
 									</div>
 								</td>
@@ -110,11 +110,12 @@
 						</div>
 						<div id="modelFilesImportContainer">
 							<div id="importFromFileSystemMessage">Import a model from local file system</div>
-							<div>Json: <input type="file" id="upload-json" /></div>
-							<div>Weights: <input type="file" id="upload-weights" /></div>
-							<div id="importModelBtn" class="aiBtn">Import Files</div>
+							<div>Json: <input type="file" id="upload-json" accept=".json" /></div>
+							<div>Weights: <input type="file" id="upload-weights" accept=".bin" /></div>
+							<button id="importModelBtn" class="aiBtn" disabled="disabled">Import Files</button>
 						</div>
 						<div id="trainAnalyzeSection">
+							<div id="trainModelMessage">Or train a new model</div>
 							<button id="trainModelBtn" class="aiBtn"><span class="spinner"></span>Train New Model</button>
 							<button id="analyzeModelBtn" class="aiBtn"><span class="spinner"></span>Analyze Model</button>
 							<div id="trainingGraphContainer">
@@ -138,6 +139,9 @@
 		<div id="calculateBall2" class="predictBall"></div>
 		<div id="calculateBall3" class="predictBall"></div>
 		<div id="calculateBall4" class="predictBall"></div>
+		<div id="predictBall1" class="predictBall"></div>
+		<div id="predictBall2" class="predictBall"></div>
+		<div id="predictBall3" class="predictBall"></div>
 		<div id="predictBall4" class="predictBall"></div>
 		<div id="ball"><div id="ballStats"></div></div>
 		<div id="corner1" class="corner"></div>
@@ -182,6 +186,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
 <script src="https://cdn.plot.ly/plotly-2.35.3.min.js"></script>
 <!--<script src="validationData.js"></script>-->
+<script src="model.js"></script>
 <script src="scripts.js"></script>
 <script src="visualizationsScripts.js"></script>
 </html>
